@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { RiArrowRightUpLine, RiUserAddLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,15 +71,18 @@ export function RegisterForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Register to your account</CardTitle>
+      <Card className="border-primary/20 bg-background/85 backdrop-blur">
+        <CardHeader className="border-b pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <RiUserAddLine />
+            Create your account
+          </CardTitle>
           <CardDescription>
-            Enter your email below to register to your account
+            Start managing tasks, lists, and deadlines in one place.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-1">
             <FieldGroup>
               <Controller
                 name="name"
@@ -140,10 +144,16 @@ export function RegisterForm({
               />
 
               <Field>
-                <Button type="submit">Register</Button>
+                <Button type="submit" className="w-full">
+                  Register
+                  <RiArrowRightUpLine data-icon="inline-end" />
+                </Button>
 
                 <FieldDescription className="text-center">
-                  Already a member? <Link href="/login">Sign in</Link>
+                  Already a member?{" "}
+                  <Link href="/login" className="font-medium underline underline-offset-2">
+                    Sign in
+                  </Link>
                 </FieldDescription>
               </Field>
             </FieldGroup>

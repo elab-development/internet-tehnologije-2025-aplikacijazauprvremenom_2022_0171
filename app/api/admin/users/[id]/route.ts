@@ -141,3 +141,56 @@ export async function PATCH(
 
   return NextResponse.json({ data: updatedUser }, { status: 200 });
 }
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  const adminGuard = await assertAdmin(request);
+  if (!adminGuard.ok) {
+    return adminGuard.response;
+  }
+
+  const params = await context.params;
+  const parsedId = userIdSchema.safeParse(params.id);
+  if (!parsedId.success) {
+    return jsonError("Invalid user id", 400, parsedId.error.flatten());
+  }
+
+  const targetUserId = parsedId.data;
+  if (targetUserId === adminGuard.adminId) {
+    return jsonError("Admin cannot delete own account", 400);
+  }
+
+  const [deletedUser] = await db
+    .delete(user)
+    .where(eq(user.id, targetUserId))
+    .returning({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+
+  if (!deletedUser) {
+    return jsonError("User not found", 404);
+  }
+
+  await db.insert(adminAuditLogs).values({
+    adminId: adminGuard.adminId,
+    targetUserId,
+    action: "delete_user",
+    details: JSON.stringify({
+      deleted: {
+        id: deletedUser.id,
+        email: deletedUser.email,
+        role: deletedUser.role,
+      },
+    }),
+  });
+
+  return NextResponse.json({ data: deletedUser }, { status: 200 });
+}

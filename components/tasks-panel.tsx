@@ -1,0 +1,792 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { RiCheckDoubleLine, RiDeleteBinLine, RiEdit2Line, RiRefreshLine } from "@remixicon/react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { SectionLoader } from "@/components/ui/section-loader";
+import { Textarea } from "@/components/ui/textarea";
+import { QUERY_LIMITS } from "@/lib/query-limits";
+
+type TaskStatus = "not_started" | "in_progress" | "done";
+type TaskPriority = "low" | "medium" | "high";
+
+type TodoList = {
+  id: string;
+  title: string;
+  description?: string | null;
+};
+
+type Category = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type Task = {
+  id: string;
+  listId: string;
+  categoryId: string | null;
+  title: string;
+  description: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  dueDate: string | null;
+  completedAt: string | null;
+  estimatedMinutes: number;
+};
+
+type ApiResponse<T> = {
+  data?: T;
+  meta?: { total: number };
+  error?: { message?: string };
+};
+
+type Props = {
+  initialLists: TodoList[];
+  initialCategories: Category[];
+  canAccessAdmin: boolean;
+};
+
+const taskStatusOptions: Array<{ value: TaskStatus; label: string }> = [
+  { value: "not_started", label: "Nije započeto" },
+  { value: "in_progress", label: "U toku" },
+  { value: "done", label: "Urađeno" },
+];
+
+const taskPriorityOptions: Array<{ value: TaskPriority; label: string }> = [
+  { value: "low", label: "Nizak" },
+  { value: "medium", label: "Srednji" },
+  { value: "high", label: "Visok" },
+];
+
+function emptyTaskForm() {
+  return {
+    title: "",
+    description: "",
+    categoryId: "",
+    priority: "medium" as TaskPriority,
+    status: "not_started" as TaskStatus,
+    dueDate: "",
+    estimatedMinutes: "30",
+  };
+}
+
+function dayKeyFromIso(value: string) {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function TasksPanel({ initialLists, initialCategories, canAccessAdmin }: Props) {
+  const [lists, setLists] = useState<TodoList[]>(initialLists);
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [selectedListId, setSelectedListId] = useState(initialLists[0]?.id ?? "");
+
+  const [listTitle, setListTitle] = useState("");
+  const [listDescription, setListDescription] = useState("");
+
+  const [taskForm, setTaskForm] = useState(emptyTaskForm);
+  const [taskEditor, setTaskEditor] = useState<{
+    id: string;
+    form: ReturnType<typeof emptyTaskForm>;
+  } | null>(null);
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [filters, setFilters] = useState({
+    query: "",
+    categoryId: "",
+    status: "",
+    priority: "",
+  });
+  const [metaTotal, setMetaTotal] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (lists.length === 0) {
+      setSelectedListId("");
+      return;
+    }
+    const exists = lists.some((entry) => entry.id === selectedListId);
+    if (!exists) setSelectedListId(lists[0].id);
+  }, [lists, selectedListId]);
+
+  const categoryMap = useMemo(() => new Map(categories.map((entry) => [entry.id, entry])), [categories]);
+
+  const fetchLists = useCallback(async () => {
+    const response = await fetch("/api/lists");
+    const payload = (await response.json()) as ApiResponse<TodoList[]>;
+    if (!response.ok) {
+      throw new Error(payload.error?.message ?? "Neuspešno učitavanje listi");
+    }
+    setLists(payload.data ?? []);
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    const response = await fetch("/api/categories");
+    const payload = (await response.json()) as ApiResponse<Category[]>;
+    if (!response.ok) {
+      throw new Error(payload.error?.message ?? "Neuspešno učitavanje kategorija");
+    }
+    setCategories(payload.data ?? []);
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
+    if (!selectedListId) {
+      setTasks([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        listId: selectedListId,
+        limit: String(Math.min(120, QUERY_LIMITS.tasks.max)),
+      });
+      if (filters.query.trim()) params.set("q", filters.query.trim());
+      if (filters.categoryId) params.set("categoryId", filters.categoryId);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.priority) params.set("priority", filters.priority);
+
+      const response = await fetch(`/api/tasks?${params.toString()}`);
+      const payload = (await response.json()) as ApiResponse<Task[]>;
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "Neuspešno učitavanje zadataka");
+      }
+      setTasks(payload.data ?? []);
+      setMetaTotal(payload.meta?.total ?? null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri učitavanju zadataka");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters.categoryId, filters.priority, filters.query, filters.status, selectedListId]);
+
+  useEffect(() => {
+    void fetchTasks();
+  }, [fetchTasks]);
+
+  async function refreshAll() {
+    try {
+      await Promise.all([fetchLists(), fetchCategories(), fetchTasks()]);
+      toast.success("Task modul je osvežen.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri osvežavanju");
+    }
+  }
+
+  async function createList(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!listTitle.trim()) return;
+    setIsSaving("create-list");
+
+    try {
+      const response = await fetch("/api/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: listTitle.trim(),
+          description: listDescription.trim() || null,
+        }),
+      });
+      const payload = (await response.json()) as ApiResponse<TodoList>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešno kreiranje liste");
+      }
+      setListTitle("");
+      setListDescription("");
+      setLists((current) => [...current, payload.data!]);
+      setSelectedListId(payload.data.id);
+      toast.success("Lista je kreirana.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri kreiranju liste");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  async function renameList(list: TodoList) {
+    const title = window.prompt("Novi naziv liste", list.title)?.trim();
+    if (!title) return;
+    setIsSaving(`rename-list-${list.id}`);
+    try {
+      const response = await fetch(`/api/lists/${list.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      const payload = (await response.json()) as ApiResponse<TodoList>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešna izmena liste");
+      }
+      setLists((current) => current.map((entry) => (entry.id === list.id ? payload.data! : entry)));
+      toast.success("Lista je izmenjena.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri izmeni liste");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  async function deleteList(list: TodoList) {
+    if (!window.confirm(`Obrisati listu "${list.title}"?`)) return;
+    setIsSaving(`delete-list-${list.id}`);
+    try {
+      const response = await fetch(`/api/lists/${list.id}`, { method: "DELETE" });
+      const payload = (await response.json()) as ApiResponse<{ id: string }>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešno brisanje liste");
+      }
+      setLists((current) => current.filter((entry) => entry.id !== list.id));
+      toast.success("Lista je obrisana.");
+      await fetchTasks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri brisanju liste");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  async function createTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedListId) {
+      toast.error("Prvo izaberi listu.");
+      return;
+    }
+    const estimated = Number.parseInt(taskForm.estimatedMinutes, 10);
+    if (!Number.isInteger(estimated) || estimated < 1) {
+      toast.error("Procena vremena mora biti pozitivan broj.");
+      return;
+    }
+    setIsSaving("create-task");
+
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listId: selectedListId,
+          categoryId: taskForm.categoryId || null,
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || null,
+          priority: taskForm.priority,
+          status: taskForm.status,
+          dueDate: taskForm.dueDate ? new Date(`${taskForm.dueDate}T12:00:00`).toISOString() : null,
+          estimatedMinutes: estimated,
+        }),
+      });
+      const payload = (await response.json()) as ApiResponse<Task>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešno kreiranje zadatka");
+      }
+      setTaskForm(emptyTaskForm());
+      toast.success("Zadatak je dodat.");
+      await fetchTasks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri kreiranju zadatka");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  function openEditor(task: Task) {
+    setTaskEditor({
+      id: task.id,
+      form: {
+        title: task.title,
+        description: task.description ?? "",
+        categoryId: task.categoryId ?? "",
+        priority: task.priority,
+        status: task.status,
+        dueDate: task.dueDate ? dayKeyFromIso(task.dueDate) : "",
+        estimatedMinutes: String(task.estimatedMinutes),
+      },
+    });
+  }
+
+  async function saveEditor() {
+    if (!taskEditor) return;
+    const estimated = Number.parseInt(taskEditor.form.estimatedMinutes, 10);
+    if (!Number.isInteger(estimated) || estimated < 1) {
+      toast.error("Procena vremena mora biti pozitivan broj.");
+      return;
+    }
+    setIsSaving(`edit-task-${taskEditor.id}`);
+    try {
+      const response = await fetch(`/api/tasks/${taskEditor.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: taskEditor.form.title.trim(),
+          description: taskEditor.form.description.trim() || null,
+          categoryId: taskEditor.form.categoryId || null,
+          priority: taskEditor.form.priority,
+          status: taskEditor.form.status,
+          dueDate: taskEditor.form.dueDate
+            ? new Date(`${taskEditor.form.dueDate}T12:00:00`).toISOString()
+            : null,
+          completedAt: taskEditor.form.status === "done" ? new Date().toISOString() : null,
+          estimatedMinutes: estimated,
+        }),
+      });
+      const payload = (await response.json()) as ApiResponse<Task>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešna izmena zadatka");
+      }
+      setTaskEditor(null);
+      toast.success("Zadatak je izmenjen.");
+      await fetchTasks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri izmeni zadatka");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  async function quickStatus(task: Task, status: TaskStatus) {
+    setIsSaving(`status-${task.id}`);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          completedAt: status === "done" ? new Date().toISOString() : null,
+        }),
+      });
+      const payload = (await response.json()) as ApiResponse<Task>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešna promena statusa");
+      }
+      await fetchTasks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri promeni statusa");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  async function deleteTask(task: Task) {
+    if (!window.confirm(`Obrisati zadatak "${task.title}"?`)) return;
+    setIsSaving(`delete-task-${task.id}`);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+      const payload = (await response.json()) as ApiResponse<{ id: string }>;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Neuspešno brisanje zadatka");
+      }
+      toast.success("Zadatak je obrisan.");
+      await fetchTasks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greška pri brisanju zadatka");
+    } finally {
+      setIsSaving(null);
+    }
+  }
+
+  return (
+    <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200 grid gap-4 xl:grid-cols-[310px_minmax(0,1fr)]">
+      <Card className="notion-surface">
+        <CardHeader>
+          <CardTitle>To‑do liste</CardTitle>
+          <CardDescription>Kreiranje, izbor i upravljanje listama.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            {lists.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nema listi. Kreiraj prvu listu.</p>
+            ) : (
+              lists.map((entry) => (
+                <article
+                  key={entry.id}
+                  className={`rounded-md border px-2 py-1.5 text-xs ${
+                    selectedListId === entry.id ? "border-primary/40 bg-primary/10" : "bg-background"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left font-medium"
+                    onClick={() => setSelectedListId(entry.id)}
+                  >
+                    {entry.title}
+                  </button>
+                  <div className="mt-1 flex gap-1">
+                    <Button size="xs" variant="outline" onClick={() => void renameList(entry)}>
+                      Uredi
+                    </Button>
+                    <Button size="xs" variant="destructive" onClick={() => void deleteList(entry)}>
+                      Obriši
+                    </Button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+
+          <form onSubmit={createList} className="space-y-2 border-t pt-3">
+            <Input
+              placeholder="Naziv liste"
+              value={listTitle}
+              onChange={(event) => setListTitle(event.target.value)}
+            />
+            <Textarea
+              rows={3}
+              placeholder="Opis liste (opciono)"
+              value={listDescription}
+              onChange={(event) => setListDescription(event.target.value)}
+            />
+            <Button type="submit" disabled={isSaving === "create-list"} className="w-full">
+              Kreiraj listu
+            </Button>
+          </form>
+
+          <div className="border-t pt-3">
+            <Button variant="outline" className="w-full" onClick={() => void refreshAll()}>
+              <RiRefreshLine data-icon="inline-start" />
+              Osveži modul
+            </Button>
+          </div>
+
+          {canAccessAdmin ? (
+            <div className="border-t pt-3">
+              <Link href="/admin" className="inline-flex w-full">
+                <Button variant="outline" className="w-full">
+                  Admin panel
+                </Button>
+              </Link>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4">
+        <Card className="notion-surface">
+          <CardHeader>
+            <CardTitle>Novi zadatak</CardTitle>
+            <CardDescription>Dodaj zadatak sa rokom, prioritetom, statusom i procenom.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={createTask} className="space-y-3">
+              <Input
+                placeholder="Naziv zadatka"
+                value={taskForm.title}
+                onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))}
+              />
+              <Textarea
+                rows={3}
+                placeholder="Opis"
+                value={taskForm.description}
+                onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))}
+              />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskForm.categoryId}
+                  onChange={(event) => setTaskForm((current) => ({ ...current, categoryId: event.target.value }))}
+                >
+                  <option value="">Bez kategorije</option>
+                  {categories.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskForm.priority}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({ ...current, priority: event.target.value as TaskPriority }))
+                  }
+                >
+                  {taskPriorityOptions.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskForm.status}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({ ...current, status: event.target.value as TaskStatus }))
+                  }
+                >
+                  {taskStatusOptions.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  type="date"
+                  value={taskForm.dueDate}
+                  onChange={(event) => setTaskForm((current) => ({ ...current, dueDate: event.target.value }))}
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  value={taskForm.estimatedMinutes}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({ ...current, estimatedMinutes: event.target.value }))
+                  }
+                />
+              </div>
+              <Button type="submit" disabled={isSaving === "create-task"}>
+                Dodaj zadatak
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {taskEditor ? (
+          <Card className="notion-surface border-primary/30">
+            <CardHeader>
+              <CardTitle>Izmena zadatka</CardTitle>
+              <CardDescription>Izmeni sve informacije o zadatku.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Input
+                value={taskEditor.form.title}
+                onChange={(event) =>
+                  setTaskEditor((current) =>
+                    current ? { ...current, form: { ...current.form, title: event.target.value } } : current,
+                  )
+                }
+              />
+              <Textarea
+                rows={3}
+                value={taskEditor.form.description}
+                onChange={(event) =>
+                  setTaskEditor((current) =>
+                    current ? { ...current, form: { ...current.form, description: event.target.value } } : current,
+                  )
+                }
+              />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskEditor.form.categoryId}
+                  onChange={(event) =>
+                    setTaskEditor((current) =>
+                      current ? { ...current, form: { ...current.form, categoryId: event.target.value } } : current,
+                    )
+                  }
+                >
+                  <option value="">Bez kategorije</option>
+                  {categories.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskEditor.form.priority}
+                  onChange={(event) =>
+                    setTaskEditor((current) =>
+                      current
+                        ? { ...current, form: { ...current.form, priority: event.target.value as TaskPriority } }
+                        : current,
+                    )
+                  }
+                >
+                  {taskPriorityOptions.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={taskEditor.form.status}
+                  onChange={(event) =>
+                    setTaskEditor((current) =>
+                      current
+                        ? { ...current, form: { ...current.form, status: event.target.value as TaskStatus } }
+                        : current,
+                    )
+                  }
+                >
+                  {taskStatusOptions.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  type="date"
+                  value={taskEditor.form.dueDate}
+                  onChange={(event) =>
+                    setTaskEditor((current) =>
+                      current ? { ...current, form: { ...current.form, dueDate: event.target.value } } : current,
+                    )
+                  }
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  value={taskEditor.form.estimatedMinutes}
+                  onChange={(event) =>
+                    setTaskEditor((current) =>
+                      current
+                        ? {
+                            ...current,
+                            form: { ...current.form, estimatedMinutes: event.target.value },
+                          }
+                        : current,
+                    )
+                  }
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => void saveEditor()} disabled={isSaving === `edit-task-${taskEditor.id}`}>
+                  Sačuvaj
+                </Button>
+                <Button variant="outline" onClick={() => setTaskEditor(null)}>
+                  Otkaži
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="notion-surface">
+          <CardHeader>
+            <CardTitle>Pretraga i filtriranje zadataka</CardTitle>
+            <CardDescription>Filtriranje po ključnim rečima, kategoriji, statusu i prioritetu.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+              <Input
+                placeholder="Pretraga..."
+                value={filters.query}
+                onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+              />
+              <select
+                className="h-7 rounded-md border bg-background px-2 text-xs"
+                value={filters.categoryId}
+                onChange={(event) => setFilters((current) => ({ ...current, categoryId: event.target.value }))}
+              >
+                <option value="">Sve kategorije</option>
+                {categories.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-7 rounded-md border bg-background px-2 text-xs"
+                value={filters.status}
+                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+              >
+                <option value="">Svi statusi</option>
+                {taskStatusOptions.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-7 rounded-md border bg-background px-2 text-xs"
+                value={filters.priority}
+                onChange={(event) => setFilters((current) => ({ ...current, priority: event.target.value }))}
+              >
+                <option value="">Svi prioriteti</option>
+                {taskPriorityOptions.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => void fetchTasks()}>
+                Primeni filtere
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setFilters({ query: "", categoryId: "", status: "", priority: "" })}
+              >
+                Reset filtera
+              </Button>
+            </div>
+            {metaTotal && metaTotal > tasks.length ? (
+              <p className="text-[11px] text-muted-foreground">
+                Prikazano {tasks.length} od {metaTotal} zadataka.
+              </p>
+            ) : null}
+
+            {isLoading ? (
+              <SectionLoader label="Učitavanje zadataka..." />
+            ) : tasks.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nema zadataka za aktivne filtere.</p>
+            ) : (
+              <div className="space-y-2">
+                {tasks.map((task) => (
+                  <article key={task.id} className="rounded-lg border bg-background p-3 text-xs">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3
+                          className={`text-sm font-medium ${
+                            task.status === "done" ? "line-through text-muted-foreground" : ""
+                          }`}
+                        >
+                          {task.title}
+                        </h3>
+                        <p className="text-muted-foreground">{task.description || "Bez opisa"}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button size="xs" variant="outline" onClick={() => openEditor(task)}>
+                          <RiEdit2Line data-icon="inline-start" />
+                          Uredi
+                        </Button>
+                        <Button size="xs" variant="destructive" onClick={() => void deleteTask(task)}>
+                          <RiDeleteBinLine data-icon="inline-start" />
+                          Obriši
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded border px-2 py-0.5">
+                        Status: {taskStatusOptions.find((entry) => entry.value === task.status)?.label}
+                      </span>
+                      <span className="rounded border px-2 py-0.5">
+                        Prioritet: {taskPriorityOptions.find((entry) => entry.value === task.priority)?.label}
+                      </span>
+                      <span className="rounded border px-2 py-0.5">Procena: {task.estimatedMinutes} min</span>
+                      <span className="rounded border px-2 py-0.5">
+                        Rok: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "bez roka"}
+                      </span>
+                      {task.categoryId ? (
+                        <span className="rounded border px-2 py-0.5">
+                          Kategorija: {categoryMap.get(task.categoryId)?.name ?? "Nepoznata"}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <Button size="xs" variant="outline" onClick={() => void quickStatus(task, "not_started")}>
+                        Nije započeto
+                      </Button>
+                      <Button size="xs" variant="outline" onClick={() => void quickStatus(task, "in_progress")}>
+                        U toku
+                      </Button>
+                      <Button size="xs" onClick={() => void quickStatus(task, "done")}>
+                        <RiCheckDoubleLine data-icon="inline-start" />
+                        Urađeno
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

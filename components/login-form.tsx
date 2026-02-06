@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { RiArrowRightUpLine, RiLockPasswordLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,15 +61,18 @@ export function LoginForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Login to your account</CardTitle>
+      <Card className="border-primary/20 bg-background/85 backdrop-blur">
+        <CardHeader className="border-b pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <RiLockPasswordLine />
+            Login to your account
+          </CardTitle>
           <CardDescription>
-            Enter your email below to login to your account
+            Enter your credentials and continue to your dashboard.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-1">
             <FieldGroup>
               <Controller
                 name="email"
@@ -111,11 +115,16 @@ export function LoginForm({
               />
 
               <Field>
-                <Button type="submit">Login</Button>
+                <Button type="submit" className="w-full">
+                  Login
+                  <RiArrowRightUpLine data-icon="inline-end" />
+                </Button>
 
                 <FieldDescription className="text-center">
                   Don&apos;t have an account?{" "}
-                  <Link href="/register">Sign up</Link>
+                  <Link href="/register" className="font-medium underline underline-offset-2">
+                    Sign up
+                  </Link>
                 </FieldDescription>
               </Field>
             </FieldGroup>

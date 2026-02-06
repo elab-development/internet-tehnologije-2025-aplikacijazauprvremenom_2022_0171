@@ -1,0 +1,152 @@
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/db";
+import { calendarEvents, reminders, tasks } from "@/db/schema";
+import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import { QUERY_LIMITS } from "@/lib/query-limits";
+
+const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
+
+const listRemindersSchema = z.object({
+  taskId: z.string().uuid().optional(),
+  eventId: z.string().uuid().optional(),
+  isSent: z.enum(["true", "false"]).optional(),
+  remindFrom: queryDateTimeSchema.optional(),
+  remindTo: queryDateTimeSchema.optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(QUERY_LIMITS.reminders.max).optional(),
+});
+
+const createReminderSchema = z
+  .object({
+    taskId: z.string().uuid().nullable().optional(),
+    eventId: z.string().uuid().nullable().optional(),
+    message: z.string().trim().min(1).max(500),
+    remindAt: z.string().datetime({ offset: true }),
+  })
+  .refine((input) => Boolean(input.taskId || input.eventId), {
+    message: "Reminder must target task or event",
+    path: ["taskId"],
+  });
+
+export async function GET(request: NextRequest) {
+  const userGuard = await requireUserId(request);
+  if (!userGuard.ok) {
+    return userGuard.response;
+  }
+
+  const search = Object.fromEntries(request.nextUrl.searchParams.entries());
+  const parsedQuery = listRemindersSchema.safeParse(search);
+  if (!parsedQuery.success) {
+    return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
+  }
+
+  const page = parsedQuery.data.page ?? 1;
+  const limit = parsedQuery.data.limit ?? QUERY_LIMITS.reminders.default;
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(reminders.userId, userGuard.userId)];
+  if (parsedQuery.data.taskId) conditions.push(eq(reminders.taskId, parsedQuery.data.taskId));
+  if (parsedQuery.data.eventId) conditions.push(eq(reminders.eventId, parsedQuery.data.eventId));
+  if (parsedQuery.data.isSent) conditions.push(eq(reminders.isSent, parsedQuery.data.isSent === "true"));
+  if (parsedQuery.data.remindFrom) {
+    conditions.push(gte(reminders.remindAt, new Date(parsedQuery.data.remindFrom)));
+  }
+  if (parsedQuery.data.remindTo) {
+    conditions.push(lte(reminders.remindAt, new Date(parsedQuery.data.remindTo)));
+  }
+
+  const whereCondition = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+  const [items, total] = await Promise.all([
+    db
+      .select({
+        id: reminders.id,
+        userId: reminders.userId,
+        taskId: reminders.taskId,
+        eventId: reminders.eventId,
+        message: reminders.message,
+        remindAt: reminders.remindAt,
+        isSent: reminders.isSent,
+        sentAt: reminders.sentAt,
+        createdAt: reminders.createdAt,
+        updatedAt: reminders.updatedAt,
+      })
+      .from(reminders)
+      .where(whereCondition)
+      .orderBy(asc(reminders.remindAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(reminders)
+      .where(whereCondition)
+      .then((rows) => rows[0]?.value ?? 0),
+  ]);
+
+  return NextResponse.json(
+    {
+      data: items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    },
+    { status: 200 },
+  );
+}
+
+export async function POST(request: NextRequest) {
+  const userGuard = await requireUserId(request);
+  if (!userGuard.ok) {
+    return userGuard.response;
+  }
+
+  const body = await parseJsonBody(request);
+  if (!body) {
+    return jsonError("Invalid JSON body", 400);
+  }
+
+  const parsedBody = createReminderSchema.safeParse(body);
+  if (!parsedBody.success) {
+    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+  }
+
+  const input = parsedBody.data;
+
+  if (input.taskId) {
+    const linkedTask = await db.query.tasks.findFirst({
+      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, userGuard.userId)),
+      columns: { id: true },
+    });
+    if (!linkedTask) {
+      return jsonError("Task does not exist for authenticated user", 400);
+    }
+  }
+
+  if (input.eventId) {
+    const linkedEvent = await db.query.calendarEvents.findFirst({
+      where: and(eq(calendarEvents.id, input.eventId), eq(calendarEvents.userId, userGuard.userId)),
+      columns: { id: true },
+    });
+    if (!linkedEvent) {
+      return jsonError("Event does not exist for authenticated user", 400);
+    }
+  }
+
+  const [createdReminder] = await db
+    .insert(reminders)
+    .values({
+      userId: userGuard.userId,
+      taskId: input.taskId ?? null,
+      eventId: input.eventId ?? null,
+      message: input.message,
+      remindAt: new Date(input.remindAt),
+    })
+    .returning();
+
+  return NextResponse.json({ data: createdReminder }, { status: 201 });
+}

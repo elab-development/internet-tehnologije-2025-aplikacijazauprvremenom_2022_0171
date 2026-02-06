@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RiRefreshLine, RiShieldUserLine, RiUserSettingsLine } from "@remixicon/react";
 import { toast } from "sonner";
+import { LogoutButton } from "@/components/logout-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { SectionLoader } from "@/components/ui/section-loader";
 import { userRoleValues, type UserRole } from "@/lib/roles";
 
 type AdminUser = {
@@ -34,17 +38,26 @@ type SingleUserResponse = {
   error?: { message?: string };
 };
 
+type DeleteUserResponse = {
+  data?: { id: string };
+  error?: { message?: string };
+};
+
 export function AdminPageClient() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<"" | UserRole>("");
+  const [query, setQuery] = useState("");
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const query = roleFilter ? `?role=${roleFilter}` : "";
-      const response = await fetch(`/api/admin/users${query}`, { method: "GET" });
+      const params = new URLSearchParams();
+      if (roleFilter) params.set("role", roleFilter);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+
+      const response = await fetch(`/api/admin/users${suffix}`, { method: "GET" });
       const payload = (await response.json()) as UsersResponse;
 
       if (!response.ok) {
@@ -79,13 +92,12 @@ export function AdminPageClient() {
       });
 
       const body = (await response.json()) as SingleUserResponse;
-      const updatedUser = body.data;
-      if (!response.ok || !updatedUser) {
+      if (!response.ok || !body.data) {
         throw new Error(body.error?.message ?? "Failed to update user");
       }
 
       setUsers((current) =>
-        current.map((user) => (user.id === userId ? updatedUser : user)),
+        current.map((entry) => (entry.id === userId ? body.data! : entry)),
       );
       toast.success("User updated.");
     } catch (error) {
@@ -96,37 +108,122 @@ export function AdminPageClient() {
     }
   }
 
+  async function deleteUser(userId: string) {
+    const confirmed = window.confirm("Delete this user account permanently?");
+    if (!confirmed) return;
+
+    setActiveUserId(userId);
+    try {
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: "DELETE",
+      });
+
+      const body = (await response.json()) as DeleteUserResponse;
+      if (!response.ok || !body.data) {
+        throw new Error(body.error?.message ?? "Failed to delete user");
+      }
+
+      setUsers((current) => current.filter((entry) => entry.id !== userId));
+      toast.success("User deleted.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error(message);
+    } finally {
+      setActiveUserId(null);
+    }
+  }
+
+  const filteredUsers = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return users;
+    return users.filter(
+      (entry) =>
+        entry.name.toLowerCase().includes(normalized) ||
+        entry.email.toLowerCase().includes(normalized),
+    );
+  }, [users, query]);
+
+  const metrics = useMemo(() => {
+    const active = users.filter((entry) => entry.isActive).length;
+    const admins = users.filter((entry) => entry.role === "admin").length;
+    const managers = users.filter((entry) => entry.role === "manager").length;
+    return { active, admins, managers };
+  }, [users]);
+
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-8">
-      <Card>
+    <main className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 p-4 md:p-8">
+      <Card className="notion-surface">
         <CardHeader>
-          <CardTitle>Admin Panel</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <RiShieldUserLine />
+            Admin Control Center
+          </CardTitle>
           <CardDescription>
-            Manage user roles and active status through protected admin routes.
+            Manage roles, account status, and audit user access in one place.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-wrap items-center gap-2">
+          <Link href="/" className="inline-flex">
+            <Button variant="outline">Home</Button>
+          </Link>
+          <Link href="/tasks" className="inline-flex">
+            <Button variant="outline">Tasks</Button>
+          </Link>
+          <Button variant="outline" onClick={() => void fetchUsers()}>
+            <RiRefreshLine data-icon="inline-start" />
+            Refresh
+          </Button>
+          <div className="ml-auto">
+            <LogoutButton variant="secondary" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Total Users</CardTitle>
+          </CardHeader>
+          <CardContent className="text-lg font-semibold">{users.length}</CardContent>
+        </Card>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Active Users</CardTitle>
+          </CardHeader>
+          <CardContent className="text-lg font-semibold">{metrics.active}</CardContent>
+        </Card>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Admins / Managers</CardTitle>
+          </CardHeader>
+          <CardContent className="text-lg font-semibold">
+            {metrics.admins} / {metrics.managers}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RiUserSettingsLine />
+            Users
+          </CardTitle>
+          <CardDescription>Filter, inspect, and update account permissions.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/"
-              className="border-input bg-input/20 hover:bg-input/50 inline-flex h-7 items-center rounded-md border px-2 text-xs font-medium"
-            >
-              Home
-            </Link>
-            <Link
-              href="/tasks"
-              className="border-input bg-input/20 hover:bg-input/50 inline-flex h-7 items-center rounded-md border px-2 text-xs font-medium"
-            >
-              Tasks
-            </Link>
-            <label className="ml-auto text-xs">
-              <span className="text-muted-foreground mr-2">Role Filter</span>
+            <Input
+              placeholder="Search by name or email..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="max-w-sm"
+            />
+            <label className="text-xs">
+              <span className="mb-1 block text-muted-foreground">Role Filter</span>
               <select
-                className="bg-input/20 border-input h-7 rounded-md border px-2 text-xs"
+                className="h-7 rounded-md border bg-input/20 px-2 text-xs"
                 value={roleFilter}
-                onChange={(event) =>
-                  setRoleFilter(event.target.value as "" | UserRole)
-                }
+                onChange={(event) => setRoleFilter(event.target.value as "" | UserRole)}
               >
                 <option value="">All</option>
                 {userRoleValues.map((role) => (
@@ -136,54 +233,47 @@ export function AdminPageClient() {
                 ))}
               </select>
             </label>
-            <Button variant="outline" onClick={() => void fetchUsers()}>
-              Refresh
-            </Button>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Users</CardTitle>
-          <CardDescription>GET /api/admin/users + PATCH /api/admin/users/:id</CardDescription>
-        </CardHeader>
-        <CardContent>
           {isLoading ? (
-            <p className="text-muted-foreground text-xs">Loading users...</p>
-          ) : users.length === 0 ? (
-            <p className="text-muted-foreground text-xs">No users found.</p>
+            <SectionLoader label="Loading users..." />
+          ) : filteredUsers.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No users match current filters.</p>
           ) : (
             <div className="grid gap-3">
-              {users.map((currentUser) => (
-                <article key={currentUser.id} className="rounded-md border p-3">
+              {filteredUsers.map((entry) => (
+                <article
+                  key={entry.id}
+                  className="rounded-xl border bg-background p-3"
+                >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-medium">{currentUser.name}</h3>
-                      <p className="text-muted-foreground text-xs">{currentUser.email}</p>
-                      <p className="text-muted-foreground mt-1 text-xs">
-                        Created: {new Date(currentUser.createdAt).toLocaleString()}
+                      <h3 className="text-sm font-medium">{entry.name}</h3>
+                      <p className="text-xs text-muted-foreground">{entry.email}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Created: {new Date(entry.createdAt).toLocaleString()}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={currentUser.isActive ? "default" : "secondary"}>
-                        {currentUser.isActive ? "active" : "inactive"}
+                      <Badge variant={entry.isActive ? "default" : "secondary"}>
+                        {entry.isActive ? "active" : "inactive"}
                       </Badge>
-                      <Badge variant="outline">{currentUser.role}</Badge>
+                      <Badge variant="outline">{entry.role}</Badge>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
+
+                  <div className="mt-3 flex flex-wrap items-end gap-2">
                     <label className="text-xs">
-                      <span className="text-muted-foreground mr-2">Role</span>
+                      <span className="mb-1 block text-muted-foreground">Role</span>
                       <select
-                        className="bg-input/20 border-input h-7 rounded-md border px-2 text-xs"
-                        value={currentUser.role}
+                        className="h-7 rounded-md border bg-input/20 px-2 text-xs"
+                        value={entry.role}
                         onChange={(event) =>
-                          void updateUser(currentUser.id, {
+                          void updateUser(entry.id, {
                             role: event.target.value as UserRole,
                           })
                         }
-                        disabled={activeUserId === currentUser.id}
+                        disabled={activeUserId === entry.id}
                       >
                         {userRoleValues.map((role) => (
                           <option key={role} value={role}>
@@ -193,15 +283,22 @@ export function AdminPageClient() {
                       </select>
                     </label>
                     <Button
-                      variant={currentUser.isActive ? "destructive" : "outline"}
+                      variant={entry.isActive ? "destructive" : "outline"}
                       onClick={() =>
-                        void updateUser(currentUser.id, {
-                          isActive: !currentUser.isActive,
+                        void updateUser(entry.id, {
+                          isActive: !entry.isActive,
                         })
                       }
-                      disabled={activeUserId === currentUser.id}
+                      disabled={activeUserId === entry.id}
                     >
-                      {currentUser.isActive ? "Deactivate" : "Activate"}
+                      {entry.isActive ? "Deactivate" : "Activate"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => void deleteUser(entry.id)}
+                      disabled={activeUserId === entry.id}
+                    >
+                      Delete user
                     </Button>
                   </div>
                 </article>
