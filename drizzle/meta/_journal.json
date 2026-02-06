@@ -8,6 +8,27 @@
       "when": 1770297383427,
       "tag": "0000_worried_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1770400187836,
+      "tag": "0001_core_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770400197610,
+      "tag": "0002_add_task_estimation",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770400369292,
+      "tag": "0003_constraints_cleanup",
+      "breakpoints": true
     }
   ]
 }
