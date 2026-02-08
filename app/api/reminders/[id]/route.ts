@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { calendarEvents, reminders, tasks } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  canActorAccessUser,
+  isLockedForUser,
+  jsonError,
+  parseJsonBody,
+  requireActor,
+} from "@/lib/api-utils";
 
 const reminderIdSchema = z.string().uuid();
 
@@ -24,9 +30,9 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -36,11 +42,22 @@ export async function PATCH(
   }
 
   const existingReminder = await db.query.reminders.findFirst({
-    where: and(eq(reminders.id, parsedId.data), eq(reminders.userId, userGuard.userId)),
-    columns: { id: true, taskId: true, eventId: true },
+    where: eq(reminders.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+      taskId: true,
+      eventId: true,
+    },
   });
   if (!existingReminder) {
     return jsonError("Reminder not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingReminder.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
   }
 
   const body = await parseJsonBody(request);
@@ -55,6 +72,16 @@ export async function PATCH(
 
   const input = parsedBody.data;
 
+  const lockedForUser = isLockedForUser(
+    actorGuard.actor,
+    existingReminder.userId,
+    existingReminder.createdByUserId,
+  );
+  const statusOnlyKeys = new Set(["isSent", "sentAt"]);
+  if (lockedForUser && !Object.keys(input).every((key) => statusOnlyKeys.has(key))) {
+    return jsonError("User can only update status on manager-created reminder", 403);
+  }
+
   const nextTaskId = input.taskId ?? existingReminder.taskId;
   const nextEventId = input.eventId ?? existingReminder.eventId;
   if (!nextTaskId && !nextEventId) {
@@ -63,21 +90,24 @@ export async function PATCH(
 
   if (input.taskId) {
     const linkedTask = await db.query.tasks.findFirst({
-      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, userGuard.userId)),
+      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, existingReminder.userId)),
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for authenticated user", 400);
+      return jsonError("Task does not exist for reminder owner", 400);
     }
   }
 
   if (input.eventId) {
     const linkedEvent = await db.query.calendarEvents.findFirst({
-      where: and(eq(calendarEvents.id, input.eventId), eq(calendarEvents.userId, userGuard.userId)),
+      where: and(
+        eq(calendarEvents.id, input.eventId),
+        eq(calendarEvents.userId, existingReminder.userId),
+      ),
       columns: { id: true },
     });
     if (!linkedEvent) {
-      return jsonError("Event does not exist for authenticated user", 400);
+      return jsonError("Event does not exist for reminder owner", 400);
     }
   }
 
@@ -91,7 +121,7 @@ export async function PATCH(
       isSent: input.isSent,
       sentAt: input.sentAt === null ? null : input.sentAt ? new Date(input.sentAt) : undefined,
     })
-    .where(and(eq(reminders.id, parsedId.data), eq(reminders.userId, userGuard.userId)))
+    .where(eq(reminders.id, parsedId.data))
     .returning();
 
   if (!updatedReminder) {
@@ -105,9 +135,9 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -116,9 +146,36 @@ export async function DELETE(
     return jsonError("Invalid reminder id", 400, parsedId.error.flatten());
   }
 
+  const existingReminder = await db.query.reminders.findFirst({
+    where: eq(reminders.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+    },
+  });
+  if (!existingReminder) {
+    return jsonError("Reminder not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingReminder.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
+  if (
+    isLockedForUser(
+      actorGuard.actor,
+      existingReminder.userId,
+      existingReminder.createdByUserId,
+    )
+  ) {
+    return jsonError("User cannot delete manager-created reminder", 403);
+  }
+
   const [deletedReminder] = await db
     .delete(reminders)
-    .where(and(eq(reminders.id, parsedId.data), eq(reminders.userId, userGuard.userId)))
+    .where(eq(reminders.id, parsedId.data))
     .returning({ id: reminders.id });
 
   if (!deletedReminder) {

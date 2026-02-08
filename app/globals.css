@@ -139,11 +139,27 @@
       radial-gradient(circle at 90% 8%, color-mix(in oklab, var(--accent) 20%, transparent), transparent 34%);
     z-index: -1;
   }
+
+  :where(button, [role="button"], a) {
+    transition:
+      transform 180ms ease,
+      box-shadow 220ms ease,
+      border-color 220ms ease,
+      background-color 220ms ease,
+      color 220ms ease;
+  }
+
+  :where(input, textarea, select) {
+    transition:
+      border-color 180ms ease,
+      background-color 180ms ease,
+      box-shadow 180ms ease;
+  }
 }
 
 @layer components {
   .notion-surface {
-    @apply border border-border/90 bg-card/95 shadow-sm backdrop-blur transition-[transform,box-shadow,border-color] duration-200;
+    @apply border border-border/90 bg-card/95 shadow-sm backdrop-blur transition-[transform,box-shadow,border-color,background-color] duration-300;
   }
 
   .notion-surface:hover {
@@ -152,6 +168,21 @@
 
   .notion-sidebar {
     @apply border-border/90 bg-sidebar/90;
+  }
+
+  .soft-enter {
+    animation: soft-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes soft-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

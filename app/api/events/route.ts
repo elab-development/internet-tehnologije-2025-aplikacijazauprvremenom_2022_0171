@@ -3,12 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { calendarEvents, tasks } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  jsonError,
+  parseJsonBody,
+  requireActor,
+  resolveTargetUserId,
+} from "@/lib/api-utils";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
 const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
 
 const listEventsSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
   taskId: z.string().uuid().optional(),
   startsFrom: queryDateTimeSchema.optional(),
@@ -19,6 +25,7 @@ const listEventsSchema = z.object({
 
 const createEventSchema = z
   .object({
+    userId: z.string().trim().min(1).optional(),
     taskId: z.string().uuid().nullable().optional(),
     title: z.string().trim().min(1).max(255),
     description: z.string().trim().max(5000).nullable().optional(),
@@ -32,9 +39,9 @@ const createEventSchema = z
   });
 
 export async function GET(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
@@ -43,11 +50,19 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
   }
 
+  const targetUserGuard = await resolveTargetUserId(
+    actorGuard.actor,
+    parsedQuery.data.userId,
+  );
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
   const page = parsedQuery.data.page ?? 1;
   const limit = parsedQuery.data.limit ?? QUERY_LIMITS.events.default;
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(calendarEvents.userId, userGuard.userId)];
+  const conditions = [eq(calendarEvents.userId, targetUserGuard.targetUserId)];
   if (parsedQuery.data.taskId) {
     conditions.push(eq(calendarEvents.taskId, parsedQuery.data.taskId));
   }
@@ -74,6 +89,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: calendarEvents.id,
         userId: calendarEvents.userId,
+        createdByUserId: calendarEvents.createdByUserId,
         taskId: calendarEvents.taskId,
         title: calendarEvents.title,
         description: calendarEvents.description,
@@ -110,9 +126,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const body = await parseJsonBody(request);
@@ -126,21 +142,28 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
+  const targetUserId = targetUserGuard.targetUserId;
 
   if (input.taskId) {
     const linkedTask = await db.query.tasks.findFirst({
-      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, userGuard.userId)),
+      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, targetUserId)),
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for authenticated user", 400);
+      return jsonError("Task does not exist for selected user", 400);
     }
   }
 
   const [createdEvent] = await db
     .insert(calendarEvents)
     .values({
-      userId: userGuard.userId,
+      userId: targetUserId,
+      createdByUserId: actorGuard.actor.id,
       taskId: input.taskId ?? null,
       title: input.title,
       description: input.description ?? null,

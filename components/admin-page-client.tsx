@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RiRefreshLine, RiShieldUserLine, RiUserSettingsLine } from "@remixicon/react";
+import {
+  RiRefreshLine,
+  RiShieldUserLine,
+  RiUserSettingsLine,
+} from "@remixicon/react";
 import { toast } from "sonner";
 import { LogoutButton } from "@/components/logout-button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +27,9 @@ type AdminUser = {
   name: string;
   email: string;
   role: UserRole;
+  managerId: string | null;
+  managerName: string | null;
+  teamSize: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +52,7 @@ type DeleteUserResponse = {
 
 export function AdminPageClient() {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [managerUsers, setManagerUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<"" | UserRole>("");
@@ -57,14 +65,25 @@ export function AdminPageClient() {
       if (roleFilter) params.set("role", roleFilter);
       const suffix = params.toString() ? `?${params.toString()}` : "";
 
-      const response = await fetch(`/api/admin/users${suffix}`, { method: "GET" });
+      const [response, managersResponse] = await Promise.all([
+        fetch(`/api/admin/users${suffix}`, { method: "GET" }),
+        fetch("/api/admin/users?role=manager", { method: "GET" }),
+      ]);
+
       const payload = (await response.json()) as UsersResponse;
+      const managersPayload = (await managersResponse.json()) as UsersResponse;
 
       if (!response.ok) {
         throw new Error(payload.error?.message ?? "Failed to fetch users");
       }
+      if (!managersResponse.ok) {
+        throw new Error(
+          managersPayload.error?.message ?? "Failed to fetch managers",
+        );
+      }
 
       setUsers(payload.data ?? []);
+      setManagerUsers(managersPayload.data ?? []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       toast.error(message);
@@ -79,7 +98,7 @@ export function AdminPageClient() {
 
   async function updateUser(
     userId: string,
-    payload: { role?: UserRole; isActive?: boolean },
+    payload: { role?: UserRole; isActive?: boolean; managerId?: string | null },
   ) {
     setActiveUserId(userId);
     try {
@@ -96,9 +115,7 @@ export function AdminPageClient() {
         throw new Error(body.error?.message ?? "Failed to update user");
       }
 
-      setUsers((current) =>
-        current.map((entry) => (entry.id === userId ? body.data! : entry)),
-      );
+      await fetchUsers();
       toast.success("User updated.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -147,8 +164,23 @@ export function AdminPageClient() {
     const active = users.filter((entry) => entry.isActive).length;
     const admins = users.filter((entry) => entry.role === "admin").length;
     const managers = users.filter((entry) => entry.role === "manager").length;
-    return { active, admins, managers };
+    const assignedUsers = users.filter(
+      (entry) => entry.role === "user" && Boolean(entry.managerId),
+    ).length;
+    return { active, admins, managers, assignedUsers };
   }, [users]);
+
+  const managerOptions = useMemo(
+    () =>
+      managerUsers
+        .filter((entry) => entry.role === "manager" && entry.isActive)
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          teamSize: entry.teamSize,
+        })),
+    [managerUsers],
+  );
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 p-4 md:p-8">
@@ -179,18 +211,22 @@ export function AdminPageClient() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <Card size="sm">
           <CardHeader>
             <CardTitle>Total Users</CardTitle>
           </CardHeader>
-          <CardContent className="text-lg font-semibold">{users.length}</CardContent>
+          <CardContent className="text-lg font-semibold">
+            {users.length}
+          </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader>
             <CardTitle>Active Users</CardTitle>
           </CardHeader>
-          <CardContent className="text-lg font-semibold">{metrics.active}</CardContent>
+          <CardContent className="text-lg font-semibold">
+            {metrics.active}
+          </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader>
@@ -198,6 +234,14 @@ export function AdminPageClient() {
           </CardHeader>
           <CardContent className="text-lg font-semibold">
             {metrics.admins} / {metrics.managers}
+          </CardContent>
+        </Card>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Assigned Users</CardTitle>
+          </CardHeader>
+          <CardContent className="text-lg font-semibold">
+            {metrics.assignedUsers}
           </CardContent>
         </Card>
       </div>
@@ -208,7 +252,9 @@ export function AdminPageClient() {
             <RiUserSettingsLine />
             Users
           </CardTitle>
-          <CardDescription>Filter, inspect, and update account permissions.</CardDescription>
+          <CardDescription>
+            Filter, inspect, and update account permissions.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -219,11 +265,15 @@ export function AdminPageClient() {
               className="max-w-sm"
             />
             <label className="text-xs">
-              <span className="mb-1 block text-muted-foreground">Role Filter</span>
+              <span className="mb-1 block text-muted-foreground">
+                Role Filter
+              </span>
               <select
                 className="h-7 rounded-md border bg-input/20 px-2 text-xs"
                 value={roleFilter}
-                onChange={(event) => setRoleFilter(event.target.value as "" | UserRole)}
+                onChange={(event) =>
+                  setRoleFilter(event.target.value as "" | UserRole)
+                }
               >
                 <option value="">All</option>
                 {userRoleValues.map((role) => (
@@ -238,7 +288,9 @@ export function AdminPageClient() {
           {isLoading ? (
             <SectionLoader label="Loading users..." />
           ) : filteredUsers.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No users match current filters.</p>
+            <p className="text-xs text-muted-foreground">
+              No users match current filters.
+            </p>
           ) : (
             <div className="grid gap-3">
               {filteredUsers.map((entry) => (
@@ -249,10 +301,22 @@ export function AdminPageClient() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <h3 className="text-sm font-medium">{entry.name}</h3>
-                      <p className="text-xs text-muted-foreground">{entry.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.email}
+                      </p>
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         Created: {new Date(entry.createdAt).toLocaleString()}
                       </p>
+                      {entry.role === "user" ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Manager: {entry.managerName ?? "unassigned"}
+                        </p>
+                      ) : null}
+                      {entry.role === "manager" ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Team size: {entry.teamSize}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={entry.isActive ? "default" : "secondary"}>
@@ -264,7 +328,9 @@ export function AdminPageClient() {
 
                   <div className="mt-3 flex flex-wrap items-end gap-2">
                     <label className="text-xs">
-                      <span className="mb-1 block text-muted-foreground">Role</span>
+                      <span className="mb-1 block text-muted-foreground">
+                        Role
+                      </span>
                       <select
                         className="h-7 rounded-md border bg-input/20 px-2 text-xs"
                         value={entry.role}
@@ -282,6 +348,30 @@ export function AdminPageClient() {
                         ))}
                       </select>
                     </label>
+                    {entry.role === "user" ? (
+                      <label className="text-xs">
+                        <span className="mb-1 block text-muted-foreground">
+                          Manager
+                        </span>
+                        <select
+                          className="h-7 rounded-md border bg-input/20 px-2 text-xs"
+                          value={entry.managerId ?? ""}
+                          onChange={(event) =>
+                            void updateUser(entry.id, {
+                              managerId: event.target.value || null,
+                            })
+                          }
+                          disabled={activeUserId === entry.id}
+                        >
+                          <option value="">Unassigned</option>
+                          {managerOptions.map((manager) => (
+                            <option key={manager.id} value={manager.id}>
+                              {manager.name} ({manager.teamSize})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <Button
                       variant={entry.isActive ? "destructive" : "outline"}
                       onClick={() =>

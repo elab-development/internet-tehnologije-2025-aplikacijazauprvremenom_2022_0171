@@ -3,7 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { categories, tasks, todoLists } from "@/db/schema";
-import { auth } from "@/lib/auth";
+import {
+  canActorAccessUser,
+  isLockedForUser,
+  jsonError,
+  parseJsonBody,
+  requireActor,
+} from "@/lib/api-utils";
+import {
+  deleteTask,
+  ServiceError,
+  updateTaskStatus,
+} from "@/lib/manager-service";
 
 const priorityValues = ["low", "medium", "high"] as const;
 const statusValues = ["not_started", "in_progress", "done"] as const;
@@ -26,30 +37,21 @@ const updateTaskSchema = z
     message: "At least one field is required for update",
   });
 
-function jsonError(message: string, status: number, details?: unknown) {
-  return NextResponse.json({ error: { message, details } }, { status });
-}
-
-async function getSessionUserId(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user?.id ?? null;
-}
-
-async function parseJsonBody(request: NextRequest) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
+function toApiError(error: unknown) {
+  if (error instanceof ServiceError) {
+    return jsonError(error.message, error.status, error.details);
   }
+
+  return jsonError("Internal server error", 500);
 }
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return jsonError("Unauthorized", 401);
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -59,12 +61,21 @@ export async function PATCH(
   }
 
   const existingTask = await db.query.tasks.findFirst({
-    where: and(eq(tasks.id, parsedId.data), eq(tasks.userId, userId)),
-    columns: { id: true },
+    where: eq(tasks.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+    },
   });
 
   if (!existingTask) {
     return jsonError("Task not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingTask.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
   }
 
   const body = await parseJsonBody(request);
@@ -79,66 +90,111 @@ export async function PATCH(
 
   const input = parsedBody.data;
 
-  if (input.listId) {
-    const list = await db.query.todoLists.findFirst({
-      where: and(eq(todoLists.id, input.listId), eq(todoLists.userId, userId)),
-      columns: { id: true },
-    });
+  const statusOnlyKeys = new Set(["status", "completedAt"]);
+  const hasOnlyStatusUpdate = Object.keys(input).every((key) => statusOnlyKeys.has(key));
 
-    if (!list) {
-      return jsonError("List does not exist for authenticated user", 400);
+  if (actorGuard.actor.role === "user" && actorGuard.actor.id !== existingTask.userId) {
+    return jsonError("Forbidden", 403);
+  }
+
+  const lockedForUser = isLockedForUser(
+    actorGuard.actor,
+    existingTask.userId,
+    existingTask.createdByUserId,
+  );
+
+  if (lockedForUser) {
+    if (!hasOnlyStatusUpdate || input.status === undefined) {
+      return jsonError(
+        "User can only update status on manager-created task",
+        403,
+      );
     }
   }
 
-  if (input.categoryId) {
-    const category = await db.query.categories.findFirst({
-      where: and(eq(categories.id, input.categoryId), eq(categories.userId, userId)),
-      columns: { id: true },
-    });
+  try {
+    if (hasOnlyStatusUpdate && input.status) {
+      const updatedTask = await updateTaskStatus({
+        actor: actorGuard.actor,
+        taskId: existingTask.id,
+        status: input.status,
+        completedAt:
+          input.completedAt === undefined
+            ? undefined
+            : input.completedAt
+              ? new Date(input.completedAt)
+              : null,
+      });
 
-    if (!category) {
-      return jsonError("Category does not exist for authenticated user", 400);
+      return NextResponse.json({ data: updatedTask }, { status: 200 });
     }
-  }
 
-  const updateValues: Partial<typeof tasks.$inferInsert> = {};
+    if (input.listId) {
+      const list = await db.query.todoLists.findFirst({
+        where: and(eq(todoLists.id, input.listId), eq(todoLists.userId, existingTask.userId)),
+        columns: { id: true },
+      });
 
-  if (input.listId !== undefined) updateValues.listId = input.listId;
-  if (input.categoryId !== undefined) updateValues.categoryId = input.categoryId;
-  if (input.title !== undefined) updateValues.title = input.title;
-  if (input.description !== undefined) updateValues.description = input.description;
-  if (input.priority !== undefined) updateValues.priority = input.priority;
-  if (input.status !== undefined) updateValues.status = input.status;
-  if (input.dueDate !== undefined) {
-    updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
-  }
-  if (input.completedAt !== undefined) {
-    updateValues.completedAt = input.completedAt ? new Date(input.completedAt) : null;
-  }
-  if (input.estimatedMinutes !== undefined) {
-    updateValues.estimatedMinutes = input.estimatedMinutes;
-  }
+      if (!list) {
+        return jsonError("List does not exist for task owner", 400);
+      }
+    }
 
-  const [updatedTask] = await db
-    .update(tasks)
-    .set(updateValues)
-    .where(and(eq(tasks.id, parsedId.data), eq(tasks.userId, userId)))
-    .returning();
+    if (input.categoryId) {
+      const category = await db.query.categories.findFirst({
+        where: and(
+          eq(categories.id, input.categoryId),
+          eq(categories.userId, existingTask.userId),
+        ),
+        columns: { id: true },
+      });
 
-  if (!updatedTask) {
-    return jsonError("Task not found", 404);
+      if (!category) {
+        return jsonError("Category does not exist for task owner", 400);
+      }
+    }
+
+    const updateValues: Partial<typeof tasks.$inferInsert> = {};
+
+    if (input.listId !== undefined) updateValues.listId = input.listId;
+    if (input.categoryId !== undefined) updateValues.categoryId = input.categoryId;
+    if (input.title !== undefined) updateValues.title = input.title;
+    if (input.description !== undefined) updateValues.description = input.description;
+    if (input.priority !== undefined) updateValues.priority = input.priority;
+    if (input.status !== undefined) updateValues.status = input.status;
+    if (input.dueDate !== undefined) {
+      updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+    }
+    if (input.completedAt !== undefined) {
+      updateValues.completedAt = input.completedAt ? new Date(input.completedAt) : null;
+    }
+    if (input.estimatedMinutes !== undefined) {
+      updateValues.estimatedMinutes = input.estimatedMinutes;
+    }
+
+    const [updatedTask] = await db
+      .update(tasks)
+      .set(updateValues)
+      .where(eq(tasks.id, parsedId.data))
+      .returning();
+
+    if (!updatedTask) {
+      return jsonError("Task not found", 404);
+    }
+
+    return NextResponse.json({ data: updatedTask }, { status: 200 });
+  } catch (error) {
+    return toApiError(error);
   }
-
-  return NextResponse.json({ data: updatedTask }, { status: 200 });
 }
 
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return jsonError("Unauthorized", 401);
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -147,14 +203,14 @@ export async function DELETE(
     return jsonError("Invalid task id", 400, parsedId.error.flatten());
   }
 
-  const [deletedTask] = await db
-    .delete(tasks)
-    .where(and(eq(tasks.id, parsedId.data), eq(tasks.userId, userId)))
-    .returning({ id: tasks.id });
+  try {
+    const deleted = await deleteTask({
+      actor: actorGuard.actor,
+      taskId: parsedId.data,
+    });
 
-  if (!deletedTask) {
-    return jsonError("Task not found", 404);
+    return NextResponse.json({ data: deleted }, { status: 200 });
+  } catch (error) {
+    return toApiError(error);
   }
-
-  return NextResponse.json({ data: deletedTask }, { status: 200 });
 }

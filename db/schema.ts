@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -19,6 +20,9 @@ export const user = pgTable(
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
     role: text("role").default("user").notNull(),
+    managerId: text("manager_id").references((): AnyPgColumn => user.id, {
+      onDelete: "set null",
+    }),
     isActive: boolean("is_active").default(true).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
@@ -26,7 +30,10 @@ export const user = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("user_role_idx").on(table.role)],
+  (table) => [
+    index("user_role_idx").on(table.role),
+    index("user_manager_id_idx").on(table.managerId),
+  ],
 );
 
 export const session = pgTable(
@@ -115,6 +122,9 @@ export const categories = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     color: text("color").default("#2563eb").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -125,6 +135,7 @@ export const categories = pgTable(
   },
   (table) => [
     index("categories_user_id_idx").on(table.userId),
+    index("categories_created_by_user_id_idx").on(table.createdByUserId),
     uniqueIndex("categories_user_name_uq").on(table.userId, table.name),
   ],
 );
@@ -134,6 +145,9 @@ export const tasks = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     listId: uuid("list_id")
@@ -157,6 +171,7 @@ export const tasks = pgTable(
   },
   (table) => [
     index("tasks_user_id_idx").on(table.userId),
+    index("tasks_created_by_user_id_idx").on(table.createdByUserId),
     index("tasks_list_id_idx").on(table.listId),
     index("tasks_status_idx").on(table.status),
     index("tasks_due_date_idx").on(table.dueDate),
@@ -168,6 +183,9 @@ export const notes = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id").references(() => categories.id, {
@@ -182,7 +200,10 @@ export const notes = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("notes_user_id_idx").on(table.userId)],
+  (table) => [
+    index("notes_user_id_idx").on(table.userId),
+    index("notes_created_by_user_id_idx").on(table.createdByUserId),
+  ],
 );
 
 export const calendarEvents = pgTable(
@@ -190,6 +211,9 @@ export const calendarEvents = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
@@ -206,6 +230,7 @@ export const calendarEvents = pgTable(
   },
   (table) => [
     index("calendar_events_user_id_idx").on(table.userId),
+    index("calendar_events_created_by_user_id_idx").on(table.createdByUserId),
     index("calendar_events_starts_at_idx").on(table.startsAt),
   ],
 );
@@ -215,6 +240,9 @@ export const reminders = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
@@ -233,6 +261,7 @@ export const reminders = pgTable(
   },
   (table) => [
     index("reminders_user_id_idx").on(table.userId),
+    index("reminders_created_by_user_id_idx").on(table.createdByUserId),
     index("reminders_remind_at_idx").on(table.remindAt),
   ],
 );

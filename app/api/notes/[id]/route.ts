@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { categories, notes } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  canActorAccessUser,
+  isLockedForUser,
+  jsonError,
+  parseJsonBody,
+  requireActor,
+} from "@/lib/api-utils";
 
 const noteIdSchema = z.string().uuid();
 
@@ -22,15 +28,39 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
   const parsedId = noteIdSchema.safeParse(params.id);
   if (!parsedId.success) {
     return jsonError("Invalid note id", 400, parsedId.error.flatten());
+  }
+
+  const existingNote = await db.query.notes.findFirst({
+    where: eq(notes.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+    },
+  });
+
+  if (!existingNote) {
+    return jsonError("Note not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingNote.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
+  if (
+    isLockedForUser(actorGuard.actor, existingNote.userId, existingNote.createdByUserId)
+  ) {
+    return jsonError("User cannot modify manager-created note", 403);
   }
 
   const body = await parseJsonBody(request);
@@ -47,11 +77,14 @@ export async function PATCH(
 
   if (input.categoryId) {
     const category = await db.query.categories.findFirst({
-      where: and(eq(categories.id, input.categoryId), eq(categories.userId, userGuard.userId)),
+      where: and(
+        eq(categories.id, input.categoryId),
+        eq(categories.userId, existingNote.userId),
+      ),
       columns: { id: true },
     });
     if (!category) {
-      return jsonError("Category does not exist for authenticated user", 400);
+      return jsonError("Category does not exist for note owner", 400);
     }
   }
 
@@ -63,7 +96,7 @@ export async function PATCH(
       categoryId: input.categoryId,
       pinned: input.pinned,
     })
-    .where(and(eq(notes.id, parsedId.data), eq(notes.userId, userGuard.userId)))
+    .where(eq(notes.id, parsedId.data))
     .returning();
 
   if (!updatedNote) {
@@ -77,9 +110,9 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -88,9 +121,33 @@ export async function DELETE(
     return jsonError("Invalid note id", 400, parsedId.error.flatten());
   }
 
+  const existingNote = await db.query.notes.findFirst({
+    where: eq(notes.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+    },
+  });
+
+  if (!existingNote) {
+    return jsonError("Note not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingNote.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
+  if (
+    isLockedForUser(actorGuard.actor, existingNote.userId, existingNote.createdByUserId)
+  ) {
+    return jsonError("User cannot delete manager-created note", 403);
+  }
+
   const [deletedNote] = await db
     .delete(notes)
-    .where(and(eq(notes.id, parsedId.data), eq(notes.userId, userGuard.userId)))
+    .where(eq(notes.id, parsedId.data))
     .returning({ id: notes.id });
 
   if (!deletedNote) {

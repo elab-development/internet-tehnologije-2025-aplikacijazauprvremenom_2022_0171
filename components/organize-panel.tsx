@@ -30,7 +30,13 @@ type ApiResponse<T> = {
   error?: { message?: string };
 };
 
-export function OrganizePanel() {
+type Props = {
+  targetUserId: string;
+  targetUserName: string;
+  isManagerDelegating: boolean;
+};
+
+export function OrganizePanel({ targetUserId, targetUserName, isManagerDelegating }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [lists, setLists] = useState<TodoList[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -39,10 +45,17 @@ export function OrganizePanel() {
   const [isSaving, setIsSaving] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
+    const categoryParams = new URLSearchParams({ userId: targetUserId });
+    const listParams = new URLSearchParams({ userId: targetUserId });
+    const taskParams = new URLSearchParams({
+      userId: targetUserId,
+      limit: String(Math.min(400, QUERY_LIMITS.tasks.max)),
+    });
+
     const [categoriesResponse, listsResponse, tasksResponse] = await Promise.all([
-      fetch("/api/categories"),
-      fetch("/api/lists"),
-      fetch(`/api/tasks?limit=${Math.min(400, QUERY_LIMITS.tasks.max)}`),
+      fetch(`/api/categories?${categoryParams.toString()}`),
+      fetch(`/api/lists?${listParams.toString()}`),
+      fetch(`/api/tasks?${taskParams.toString()}`),
     ]);
 
     const categoriesPayload = (await categoriesResponse.json()) as ApiResponse<Category[]>;
@@ -62,7 +75,7 @@ export function OrganizePanel() {
     setCategories(categoriesPayload.data ?? []);
     setLists(listsPayload.data ?? []);
     setTasks(tasksPayload.data ?? []);
-  }, []);
+  }, [targetUserId]);
 
   useEffect(() => {
     void (async () => {
@@ -101,6 +114,7 @@ export function OrganizePanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: targetUserId,
           name: categoryName.trim(),
           color: categoryColor,
         }),
@@ -207,7 +221,7 @@ export function OrganizePanel() {
       <Card className="notion-surface">
         <CardHeader>
           <CardTitle>Kategorije</CardTitle>
-          <CardDescription>Tagovi i kategorije za lakše filtriranje i pretragu.</CardDescription>
+          <CardDescription>Tagovi i kategorije za lakše filtriranje i pretragu korisnika {targetUserName}.{isManagerDelegating ? " Menadzerski pregled." : ""}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <form onSubmit={createCategory} className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_90px_auto]">
@@ -259,7 +273,7 @@ export function OrganizePanel() {
       <Card className="notion-surface">
         <CardHeader>
           <CardTitle>To‑do liste</CardTitle>
-          <CardDescription>Upravljanje nazivom i životnim ciklusom listi.</CardDescription>
+          <CardDescription>Upravljanje nazivom i životnim ciklusom listi korisnika {targetUserName}.</CardDescription>
         </CardHeader>
         <CardContent>
           {lists.length === 0 ? (
@@ -293,3 +307,4 @@ export function OrganizePanel() {
     </div>
   );
 }
+
