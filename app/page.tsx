@@ -16,17 +16,17 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { db } from "@/db";
 import { tasks, todoLists, user } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, roleLabelSr } from "@/lib/roles";
 
 const copy = {
-  dashboard: "Time Manager Dashboard",
+  dashboard: "Time Manager kontrolna tabla",
   welcome: "Dobrodosao, {name}. Uloga:",
   lists: "To-do liste",
   openTasks: "Otvoreni zadaci",
   dueToday: "Rok danas",
   tasksAndLists: "Zadaci i liste",
   tasksAndListsDesc: "Kreiranje lista, zadataka, statusa, prioriteta i rokova.",
-  openWorkspace: "Otvori workspace",
+  openWorkspace: "Otvori radni prostor",
   calendarPlanner: "Kalendar i planer",
   calendarPlannerDesc: "Dnevni, nedeljni i mesecni prikaz uz direktno dodavanje obaveza.",
   openCalendar: "Otvori kalendar",
@@ -90,7 +90,7 @@ export default async function HomePage() {
           </CardTitle>
           <CardDescription>
             {text.welcome.replace("{name}", session.user.name)}{" "}
-            <span className="font-medium">{currentUser?.role ?? "user"}</span>.
+            <span className="font-medium">{roleLabelSr(currentUser?.role)}</span>.
           </CardDescription>
           <CardAction className="hidden md:block">
             <LogoutButton variant="secondary" />

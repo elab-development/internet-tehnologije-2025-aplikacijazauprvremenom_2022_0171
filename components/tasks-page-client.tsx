@@ -21,8 +21,17 @@ import { ReminderDispatchListener } from "@/components/reminder-dispatch-listene
 import { RemindersPanel } from "@/components/reminders-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { TasksPanel } from "@/components/tasks-panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import type { UserRole } from "@/lib/roles";
 
 type TodoList = {
@@ -66,7 +75,10 @@ const uiCopy = {
   subtitle:
     "Dobrodosao, {name}. Upravljaj zadacima, kalendarom, beleskama, podsetnicima i izgledom aplikacije.",
   home: "Pocetna",
-  admin: "Admin",
+  admin: "Admin panel",
+  teamMember: "Clan tima",
+  myAccount: "Moj nalog",
+  selectMember: "Izaberi clana tima",
   tabs: {
     tasks: "Zadaci",
     calendar: "Kalendar",
@@ -107,7 +119,9 @@ export function TasksPageClient({
               isActive: true,
               isSelf: true,
             },
-            ...managerTeamMembers.map((entry) => ({ ...entry, isSelf: false })),
+            ...[...managerTeamMembers]
+              .sort((a, b) => a.name.localeCompare(b.name, "sr", { sensitivity: "base" }))
+              .map((entry) => ({ ...entry, isSelf: false })),
           ]
         : [],
     [isManagerActor, managerTeamMembers, sessionUser.email, sessionUser.id, sessionUser.name],
@@ -149,6 +163,7 @@ export function TasksPageClient({
   }, [activeTargetUserId, isManagerActor, managerTargets, sessionUser.email, sessionUser.id, sessionUser.name]);
 
   const isManagerDelegating = isManagerActor && activeTargetUserId !== sessionUser.id;
+  const activeTargetLabel = activeTargetUser.isSelf ? copy.myAccount : activeTargetUser.name;
 
   const tabs: Array<{ id: WorkspaceTab; label: string; icon: ReactNode }> = useMemo(
     () => [
@@ -175,39 +190,70 @@ export function TasksPageClient({
               {isManagerActor ? ` Aktivni korisnik: ${activeTargetUser.name}.` : ""}
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-2">
-            <Link href="/" className="inline-flex">
-              <Button variant="outline" className="transition-transform duration-200 hover:-translate-y-0.5">
-                <RiHome4Line data-icon="inline-start" />
-                {copy.home}
-              </Button>
-            </Link>
-            {canAccessAdmin ? (
-              <Link href="/admin" className="inline-flex">
+          <CardContent
+            className={cn(
+              "gap-3",
+              isManagerActor
+                ? "grid grid-cols-1 md:grid-cols-[auto_minmax(280px,380px)_auto] md:items-end"
+                : "flex flex-wrap items-center",
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/" className="inline-flex">
                 <Button variant="outline" className="transition-transform duration-200 hover:-translate-y-0.5">
-                  <RiAdminLine data-icon="inline-start" />
-                  {copy.admin}
+                  <RiHome4Line data-icon="inline-start" />
+                  {copy.home}
                 </Button>
               </Link>
-            ) : null}
+              {canAccessAdmin ? (
+                <Link href="/admin" className="inline-flex">
+                  <Button variant="outline" className="transition-transform duration-200 hover:-translate-y-0.5">
+                    <RiAdminLine data-icon="inline-start" />
+                    {copy.admin}
+                  </Button>
+                </Link>
+              ) : null}
+            </div>
+
             {isManagerActor ? (
-              <label className="min-w-[220px] text-xs">
-                <span className="mb-1 block text-muted-foreground">Clan tima</span>
-                <select
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                  value={activeTargetUserId}
-                  onChange={(event) => setSelectedTargetUserId(event.target.value)}
-                >
-                  {managerTargets.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.isSelf ? "Moj nalog" : entry.name}
-                      {entry.isActive ? "" : " (neaktivan)"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="w-full md:justify-self-center">
+                <label className="grid w-full gap-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      {copy.teamMember} ({managerTargets.length})
+                    </span>
+                    {!activeTargetUser.isActive ? <Badge variant="secondary">neaktivan</Badge> : null}
+                  </div>
+                  <Select
+                    value={activeTargetUserId}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      setSelectedTargetUserId(value);
+                    }}
+                    disabled={managerTargets.length <= 1}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder={copy.selectMember}>
+                        {activeTargetLabel}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {managerTargets.map((entry) => (
+                        <SelectItem key={entry.id} value={entry.id}>
+                          {entry.isSelf ? copy.myAccount : `${entry.name} - ${entry.email}`}
+                          {entry.isActive ? "" : " (neaktivan)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Aktivno: {activeTargetUser.email}
+                  </p>
+                </label>
+              </div>
             ) : null}
-            <div className="ml-auto">
+
+            <div className={cn("md:justify-self-end", !isManagerActor && "ml-auto")}>
               <LogoutButton variant="secondary" className="transition-transform duration-200 hover:-translate-y-0.5" />
             </div>
           </CardContent>

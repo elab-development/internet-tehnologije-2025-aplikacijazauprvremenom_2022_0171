@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+﻿import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -35,7 +35,7 @@ const updateEventSchema = z
     },
   )
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 export async function PATCH(
@@ -50,7 +50,7 @@ export async function PATCH(
   const params = await context.params;
   const parsedId = eventIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid event id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID dogadjaja", 400, parsedId.error.flatten());
   }
 
   const existingEvent = await db.query.calendarEvents.findFirst({
@@ -69,23 +69,23 @@ export async function PATCH(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingEvent.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   if (
     isLockedForUser(actorGuard.actor, existingEvent.userId, existingEvent.createdByUserId)
   ) {
-    return jsonError("User cannot modify manager-created event", 403);
+    return jsonError("Korisnik ne moze da menja dogadjaj koji je kreirao menadzer", 403);
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan JSON payload", 400);
   }
 
   const parsedBody = updateEventSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -96,7 +96,7 @@ export async function PATCH(
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for event owner", 400);
+      return jsonError("Zadatak ne postoji za vlasnika dogadjaja", 400);
     }
   }
 
@@ -138,7 +138,7 @@ export async function DELETE(
   const params = await context.params;
   const parsedId = eventIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid event id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID dogadjaja", 400, parsedId.error.flatten());
   }
 
   const existingEvent = await db.query.calendarEvents.findFirst({
@@ -155,13 +155,13 @@ export async function DELETE(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingEvent.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   if (
     isLockedForUser(actorGuard.actor, existingEvent.userId, existingEvent.createdByUserId)
   ) {
-    return jsonError("User cannot delete manager-created event", 403);
+    return jsonError("Korisnik ne moze da obrise dogadjaj koji je kreirao menadzer", 403);
   }
 
   const [deletedEvent] = await db
@@ -175,3 +175,5 @@ export async function DELETE(
 
   return NextResponse.json({ data: deletedEvent }, { status: 200 });
 }
+
+

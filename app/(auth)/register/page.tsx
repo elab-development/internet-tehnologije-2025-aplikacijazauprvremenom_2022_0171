@@ -11,11 +11,11 @@ export default function Page() {
               Time Manager
             </p>
             <h1 className="mt-3 text-3xl font-semibold leading-tight">
-              Build your planning hub and start tracking tasks instantly.
+              Kreiraj svoj centar za planiranje i odmah kreni sa pracenjem zadataka.
             </h1>
           </div>
           <p className="text-xs text-muted-foreground">
-            Create your account to manage lists, assign priorities, and plan by calendar.
+            Napravi nalog za upravljanje listama, prioritetima i planiranjem po kalendaru.
           </p>
         </section>
         <div className="w-full md:max-w-[420px]">

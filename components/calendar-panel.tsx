@@ -2,9 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SectionLoader } from "@/components/ui/section-loader";
 import { Textarea } from "@/components/ui/textarea";
 import { QUERY_LIMITS } from "@/lib/query-limits";
@@ -111,6 +128,12 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
   const [form, setForm] = useState(emptyEventForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+  const [renameEventDialog, setRenameEventDialog] = useState<{
+    id: string;
+    currentTitle: string;
+    value: string;
+  } | null>(null);
+  const [deleteEventDialog, setDeleteEventDialog] = useState<CalendarEvent | null>(null);
 
   const range = useMemo(() => {
     if (calendarView === "day") {
@@ -269,8 +292,6 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
   }
 
   async function deleteEvent(entry: CalendarEvent) {
-    if (!window.confirm(`Obrisati dogadjaj "${entry.title}"?`)) return;
-
     setIsSaving(`delete-${entry.id}`);
     try {
       const response = await fetch(`/api/events/${entry.id}`, { method: "DELETE" });
@@ -287,13 +308,10 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
     }
   }
 
-  async function editEvent(entry: CalendarEvent) {
-    const title = window.prompt("Novi naziv dogadjaja", entry.title)?.trim();
-    if (!title) return;
-
-    setIsSaving(`edit-${entry.id}`);
+  async function editEventTitle(eventId: string, title: string) {
+    setIsSaving(`edit-${eventId}`);
     try {
-      const response = await fetch(`/api/events/${entry.id}`, {
+      const response = await fetch(`/api/events/${eventId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
@@ -309,6 +327,18 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
     } finally {
       setIsSaving(null);
     }
+  }
+
+  async function submitRenameEventDialog() {
+    if (!renameEventDialog) return;
+    const title = renameEventDialog.value.trim();
+    if (!title) {
+      toast.error("Naziv dogadjaja je obavezan.");
+      return;
+    }
+
+    await editEventTitle(renameEventDialog.id, title);
+    setRenameEventDialog(null);
   }
 
   function moveCalendar(direction: "prev" | "next") {
@@ -512,14 +542,24 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
                           <div key={entry.id} className="mt-1 rounded border bg-background p-1.5">
                             <p className="truncate text-muted-foreground">- {entry.title}</p>
                             <div className="mt-1 flex gap-1">
-                              <Button size="xs" variant="outline" onClick={() => void editEvent(entry)}>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() =>
+                                  setRenameEventDialog({
+                                    id: entry.id,
+                                    currentTitle: entry.title,
+                                    value: entry.title,
+                                  })
+                                }
+                              >
                                 Uredi
                               </Button>
                               <Button
                                 size="xs"
                                 variant="destructive"
                                 disabled={isSaving === `delete-${entry.id}`}
-                                onClick={() => void deleteEvent(entry)}
+                                onClick={() => setDeleteEventDialog(entry)}
                               >
                                 Obrisi
                               </Button>
@@ -567,61 +607,152 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
             Kreiranje dogadjaja direktno iz prikaza kalendara za korisnika {targetUserName}.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={createEvent} className="space-y-3 animate-in fade-in-0 duration-300">
-            <Input
-              placeholder="Naziv dogadjaja"
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            />
-            <Textarea
-              rows={2}
-              placeholder="Opis"
-              value={form.description}
-              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            />
-            <label className="text-xs">
-              <span className="mb-1 block text-muted-foreground">Povezan task (opciono)</span>
-              <select
-                className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                value={form.taskId}
-                onChange={(event) => setForm((current) => ({ ...current, taskId: event.target.value }))}
-              >
-                <option value="">Bez povezivanja</option>
-                {tasks.map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <Input
-                type="datetime-local"
-                value={form.startsAt}
-                onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))}
-              />
-              <Input
-                type="datetime-local"
-                value={form.endsAt}
-                onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))}
-              />
+        <CardContent className="pt-1">
+          <form onSubmit={createEvent} className="space-y-5 animate-in fade-in-0 duration-300">
+            <div className="space-y-4 rounded-lg border bg-background/45 p-4">
+              <label className="grid gap-1.5 text-xs">
+                <span className="text-muted-foreground">Naziv dogadjaja</span>
+                <Input
+                  className="h-9 text-sm md:text-sm"
+                  placeholder="Naziv dogadjaja"
+                  value={form.title}
+                  onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs">
+                <span className="text-muted-foreground">Opis (opciono)</span>
+                <Textarea
+                  rows={3}
+                  className="min-h-24"
+                  placeholder="Opis"
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs">
+                <span className="text-muted-foreground">Povezan task (opciono)</span>
+                <Select
+                  value={form.taskId || "none"}
+                  onValueChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      taskId: !value || value === "none" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-9 w-full text-sm md:text-sm">
+                    <SelectValue placeholder="Bez povezivanja">
+                      {form.taskId
+                        ? (tasks.find((task) => task.id === form.taskId)?.title ?? "Bez povezivanja")
+                        : "Bez povezivanja"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Bez povezivanja</SelectItem>
+                    {tasks.map((task) => (
+                      <SelectItem key={task.id} value={task.id}>
+                        {task.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="grid gap-1.5 text-xs">
+                  <span className="text-muted-foreground">Pocetak</span>
+                  <Input
+                    className="h-9 text-sm md:text-sm"
+                    type="datetime-local"
+                    value={form.startsAt}
+                    onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs">
+                  <span className="text-muted-foreground">Kraj</span>
+                  <Input
+                    className="h-9 text-sm md:text-sm"
+                    type="datetime-local"
+                    value={form.endsAt}
+                    onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <label className="grid gap-1.5 text-xs">
+                <span className="text-muted-foreground">Lokacija (opciono)</span>
+                <Input
+                  className="h-9 text-sm md:text-sm"
+                  placeholder="Lokacija"
+                  value={form.location}
+                  onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}
+                />
+              </label>
             </div>
-            <Input
-              placeholder="Lokacija"
-              value={form.location}
-              onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}
-            />
-            <Button
-              type="submit"
-              disabled={isSaving === "create"}
-              className="transition-transform duration-200 hover:-translate-y-0.5"
-            >
-              Sacuvaj dogadjaj
-            </Button>
+            <div className="flex justify-start pt-1">
+              <Button
+                type="submit"
+                disabled={isSaving === "create"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
+              >
+                Sacuvaj dogadjaj
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(renameEventDialog)} onOpenChange={(open) => !open && setRenameEventDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Izmeni dogadjaj</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unesi novi naziv za dogadjaj <span className="font-medium">{renameEventDialog?.currentTitle}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={renameEventDialog?.value ?? ""}
+            onChange={(event) =>
+              setRenameEventDialog((current) =>
+                current ? { ...current, value: event.target.value } : current,
+              )
+            }
+            autoFocus
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(renameEventDialog && isSaving === `edit-${renameEventDialog.id}`)}
+              onClick={() => void submitRenameEventDialog()}
+            >
+              Sacuvaj
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deleteEventDialog)} onOpenChange={(open) => !open && setDeleteEventDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Obrisi dogadjaj?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Potvrdjujes trajno brisanje dogadjaja <span className="font-medium">{deleteEventDialog?.title}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+              onClick={() => {
+                if (!deleteEventDialog) return;
+                const target = deleteEventDialog;
+                setDeleteEventDialog(null);
+                void deleteEvent(target);
+              }}
+            >
+              Obrisi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

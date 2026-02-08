@@ -2,14 +2,40 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { RiCheckDoubleLine, RiDeleteBinLine, RiEdit2Line, RiRefreshLine } from "@remixicon/react";
+import {
+  RiCheckDoubleLine,
+  RiDeleteBinLine,
+  RiEdit2Line,
+  RiListCheck3,
+  RiRefreshLine,
+  RiTimerLine,
+} from "@remixicon/react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SectionLoader } from "@/components/ui/section-loader";
 import { Textarea } from "@/components/ui/textarea";
 import { QUERY_LIMITS } from "@/lib/query-limits";
+import { cn } from "@/lib/utils";
 
 type TaskStatus = "not_started" | "in_progress" | "done";
 type TaskPriority = "low" | "medium" | "high";
@@ -117,6 +143,11 @@ function dayKeyFromIso(value: string) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "bez roka";
+  return new Date(value).toLocaleDateString("sr-RS");
+}
+
 export function TasksPanel({
   initialLists,
   initialCategories,
@@ -131,12 +162,19 @@ export function TasksPanel({
 
   const [listTitle, setListTitle] = useState("");
   const [listDescription, setListDescription] = useState("");
+  const [renameListDialog, setRenameListDialog] = useState<{
+    id: string;
+    initialTitle: string;
+    value: string;
+  } | null>(null);
+  const [deleteListDialog, setDeleteListDialog] = useState<TodoList | null>(null);
 
   const [taskForm, setTaskForm] = useState(emptyTaskForm);
   const [taskEditor, setTaskEditor] = useState<{
     id: string;
     form: ReturnType<typeof emptyTaskForm>;
   } | null>(null);
+  const [deleteTaskDialog, setDeleteTaskDialog] = useState<Task | null>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filters, setFilters] = useState({
@@ -164,6 +202,8 @@ export function TasksPanel({
     () => lists.find((entry) => entry.id === selectedListId) ?? null,
     [lists, selectedListId],
   );
+
+  const pendingTasksCount = useMemo(() => tasks.filter((entry) => entry.status !== "done").length, [tasks]);
 
   const fetchLists = useCallback(async () => {
     const params = new URLSearchParams({ userId: targetUserId });
@@ -235,7 +275,7 @@ export function TasksPanel({
   async function refreshAll() {
     try {
       await Promise.all([fetchLists(), fetchCategories(), fetchTasks()]);
-      toast.success("Task modul je osvezen.");
+      toast.success("Modul zadataka je osvezen.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri osvezavanju");
     }
@@ -243,7 +283,10 @@ export function TasksPanel({
 
   async function createList(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!listTitle.trim()) return;
+    if (!listTitle.trim()) {
+      toast.error("Naziv liste je obavezan.");
+      return;
+    }
 
     setIsSaving("create-list");
     try {
@@ -272,13 +315,14 @@ export function TasksPanel({
     }
   }
 
-  async function renameList(list: TodoList) {
-    const title = window.prompt("Novi naziv liste", list.title)?.trim();
-    if (!title) return;
+  function openRenameListDialog(list: TodoList) {
+    setRenameListDialog({ id: list.id, initialTitle: list.title, value: list.title });
+  }
 
-    setIsSaving(`rename-list-${list.id}`);
+  async function renameList(listId: string, title: string) {
+    setIsSaving(`rename-list-${listId}`);
     try {
-      const response = await fetch(`/api/lists/${list.id}`, {
+      const response = await fetch(`/api/lists/${listId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
@@ -288,18 +332,29 @@ export function TasksPanel({
         throw new Error(payload.error?.message ?? "Neuspesna izmena liste");
       }
 
-      setLists((current) => current.map((entry) => (entry.id === list.id ? payload.data! : entry)));
+      setLists((current) => current.map((entry) => (entry.id === listId ? payload.data! : entry)));
       toast.success("Lista je izmenjena.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri izmeni liste");
+      throw error;
     } finally {
       setIsSaving(null);
     }
   }
 
-  async function deleteList(list: TodoList) {
-    if (!window.confirm(`Obrisati listu "${list.title}"?`)) return;
+  async function submitRenameListDialog() {
+    if (!renameListDialog) return;
+    const title = renameListDialog.value.trim();
+    if (!title) {
+      toast.error("Naziv liste je obavezan.");
+      return;
+    }
 
+    await renameList(renameListDialog.id, title);
+    setRenameListDialog(null);
+  }
+
+  async function deleteList(list: TodoList) {
     setIsSaving(`delete-list-${list.id}`);
     try {
       const response = await fetch(`/api/lists/${list.id}`, { method: "DELETE" });
@@ -309,6 +364,11 @@ export function TasksPanel({
       }
 
       setLists((current) => current.filter((entry) => entry.id !== list.id));
+      if (selectedListId === list.id) {
+        setSelectedListId("");
+        setTasks([]);
+        setTaskEditor(null);
+      }
       toast.success("Lista je obrisana.");
       await fetchTasks();
     } catch (error) {
@@ -446,8 +506,6 @@ export function TasksPanel({
   }
 
   async function deleteTask(task: Task) {
-    if (!window.confirm(`Obrisati zadatak "${task.title}"?`)) return;
-
     setIsSaving(`delete-task-${task.id}`);
     try {
       const response = await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
@@ -457,6 +515,9 @@ export function TasksPanel({
       }
 
       toast.success("Zadatak je obrisan.");
+      if (taskEditor?.id === task.id) {
+        setTaskEditor(null);
+      }
       await fetchTasks();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri brisanju zadatka");
@@ -466,519 +527,723 @@ export function TasksPanel({
   }
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 grid gap-4 xl:grid-cols-[310px_minmax(0,1fr)]">
-      <Card className="notion-surface animate-in fade-in-0 slide-in-from-left-2 duration-500">
-        <CardHeader>
-          <CardTitle>To-do liste</CardTitle>
-          <CardDescription>
-            Kreiranje, izbor i upravljanje listama.
-            {isManagerDelegating ? ` Radis za: ${targetUserName}.` : ""}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            {lists.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Nema listi. Kreiraj prvu listu.</p>
-            ) : (
-              lists.map((entry) => (
-                <article
-                  key={entry.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={selectedListId === entry.id}
-                  onClick={() => setSelectedListId(entry.id)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    setSelectedListId(entry.id);
-                  }}
-                  className={`cursor-pointer rounded-md border px-2 py-1.5 text-xs transition-all duration-300 hover:-translate-y-0.5 ${
-                    selectedListId === entry.id
-                      ? "border-primary/50 bg-primary/10 shadow-sm"
-                      : "bg-background hover:border-primary/25 hover:bg-primary/5"
-                  }`}
-                >
-                  <p className="font-medium">{entry.title}</p>
-                  <div className="mt-1 flex gap-1">
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="outline"
-                      className="transition-transform duration-200 hover:-translate-y-0.5"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void renameList(entry);
-                      }}
-                    >
-                      Uredi
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="destructive"
-                      className="transition-transform duration-200 hover:-translate-y-0.5"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void deleteList(entry);
-                      }}
-                    >
-                      Obrisi
-                    </Button>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-
-          <form onSubmit={createList} className="space-y-2 border-t pt-3 animate-in fade-in-0 duration-300">
-            <Input
-              placeholder="Naziv liste"
-              value={listTitle}
-              onChange={(event) => setListTitle(event.target.value)}
-            />
-            <Textarea
-              rows={3}
-              placeholder="Opis liste (opciono)"
-              value={listDescription}
-              onChange={(event) => setListDescription(event.target.value)}
-            />
-            <Button
-              type="submit"
-              disabled={isSaving === "create-list"}
-              className="w-full transition-transform duration-200 hover:-translate-y-0.5"
-            >
-              Kreiraj listu
-            </Button>
-          </form>
-
-          <div className="border-t pt-3">
-            <Button
-              variant="outline"
-              className="w-full transition-transform duration-200 hover:-translate-y-0.5"
-              onClick={() => void refreshAll()}
-            >
-              <RiRefreshLine data-icon="inline-start" />
-              Osvezi modul
-            </Button>
-          </div>
-
-          {canAccessAdmin ? (
-            <div className="border-t pt-3">
-              <Link href="/admin" className="inline-flex w-full">
-                <Button
-                  variant="outline"
-                  className="w-full transition-transform duration-200 hover:-translate-y-0.5"
-                >
-                  Admin panel
-                </Button>
-              </Link>
+    <>
+      <div className="grid gap-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-300 xl:grid-cols-[310px_minmax(0,1fr)]">
+        <Card className="notion-surface animate-in fade-in-0 slide-in-from-left-2 duration-500">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RiListCheck3 />
+              To-do liste
+            </CardTitle>
+            <CardDescription>
+              Kreiranje, izbor i upravljanje listama.
+              {isManagerDelegating ? ` Radis za: ${targetUserName}.` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Ukupno listi: {lists.length}</Badge>
+              {selectedList ? <Badge>Aktivna: {selectedList.title}</Badge> : null}
             </div>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      <div className="space-y-4">
-        {!selectedList ? (
-          <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-            <CardHeader>
-              <CardTitle>Izaberi listu za nastavak</CardTitle>
-              <CardDescription>
-                Zadaci ostaju skriveni dok ne selektujes jednu to-do listu sa leve strane.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+            <div className="space-y-1.5">
               {lists.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Nemas nijednu listu. Kreiraj listu pa je klikom selektuj.
+                <p className="rounded-md border border-dashed bg-background/60 p-3 text-xs text-muted-foreground">
+                  Nema listi. Kreiraj prvu listu.
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  Klikni na listu da otkljucas kreiranje, filtriranje i prikaz zadataka.
-                </p>
+                lists.map((entry) => {
+                  const isSelected = selectedListId === entry.id;
+                  return (
+                    <article
+                      key={entry.id}
+                      className={cn(
+                        "rounded-md border bg-background/70 p-2.5 text-xs transition-all duration-300",
+                        isSelected
+                          ? "border-primary/45 bg-primary/10 shadow-sm"
+                          : "hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/5",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedListId(entry.id)}
+                          className="text-left"
+                        >
+                          <p className="font-medium">{entry.title}</p>
+                          {entry.description ? (
+                            <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{entry.description}</p>
+                          ) : null}
+                        </button>
+                        {isSelected ? <Badge variant="secondary">aktivna</Badge> : null}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {!isSelected ? (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => setSelectedListId(entry.id)}
+                          >
+                            Izaberi
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={isSaving === `rename-list-${entry.id}`}
+                          onClick={() => openRenameListDialog(entry)}
+                        >
+                          <RiEdit2Line data-icon="inline-start" />
+                          Uredi
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="destructive"
+                          disabled={isSaving === `delete-list-${entry.id}`}
+                          onClick={() => setDeleteListDialog(entry)}
+                        >
+                          <RiDeleteBinLine data-icon="inline-start" />
+                          Obrisi
+                        </Button>
+                      </div>
+                    </article>
+                  );
+                })
               )}
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300 hover:-translate-y-0.5">
+            </div>
+
+            <form onSubmit={createList} className="space-y-2 border-t pt-3 animate-in fade-in-0 duration-300">
+              <Input
+                placeholder="Naziv liste"
+                value={listTitle}
+                onChange={(event) => setListTitle(event.target.value)}
+              />
+              <Textarea
+                rows={3}
+                placeholder="Opis liste (opciono)"
+                value={listDescription}
+                onChange={(event) => setListDescription(event.target.value)}
+              />
+              <Button
+                type="submit"
+                disabled={isSaving === "create-list"}
+                className="w-full transition-transform duration-200 hover:-translate-y-0.5"
+              >
+                Kreiraj listu
+              </Button>
+            </form>
+
+            <div className="border-t pt-3">
+              <Button
+                variant="outline"
+                className="w-full transition-transform duration-200 hover:-translate-y-0.5"
+                onClick={() => void refreshAll()}
+              >
+                <RiRefreshLine data-icon="inline-start" />
+                Osvezi modul
+              </Button>
+            </div>
+
+            {canAccessAdmin ? (
+              <div className="border-t pt-3">
+                <Link href="/admin" className="inline-flex w-full">
+                  <Button
+                    variant="outline"
+                    className="w-full transition-transform duration-200 hover:-translate-y-0.5"
+                  >
+                    Admin panel
+                  </Button>
+                </Link>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          {!selectedList ? (
+            <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
               <CardHeader>
-                <CardTitle>Novi zadatak</CardTitle>
+                <CardTitle>Izaberi listu za nastavak</CardTitle>
                 <CardDescription>
-                  Aktivna lista: <span className="font-medium">{selectedList.title}</span> | Korisnik:{" "}
-                  <span className="font-medium">{targetUserName}</span>
+                  Zadaci ostaju skriveni dok ne selektujes jednu to-do listu sa leve strane.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={createTask} className="space-y-3 animate-in fade-in-0 duration-300">
-                  <Input
-                    placeholder="Naziv zadatka"
-                    value={taskForm.title}
-                    onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))}
-                  />
-                  <Textarea
-                    rows={3}
-                    placeholder="Opis"
-                    value={taskForm.description}
-                    onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))}
-                  />
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskForm.categoryId}
-                      onChange={(event) => setTaskForm((current) => ({ ...current, categoryId: event.target.value }))}
-                    >
-                      <option value="">Bez kategorije</option>
-                      {categories.map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskForm.priority}
-                      onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, priority: event.target.value as TaskPriority }))
-                      }
-                    >
-                      {taskPriorityOptions.map((entry) => (
-                        <option key={entry.value} value={entry.value}>
-                          {entry.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskForm.status}
-                      onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, status: event.target.value as TaskStatus }))
-                      }
-                    >
-                      {taskStatusOptions.map((entry) => (
-                        <option key={entry.value} value={entry.value}>
-                          {entry.label}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      type="date"
-                      value={taskForm.dueDate}
-                      onChange={(event) => setTaskForm((current) => ({ ...current, dueDate: event.target.value }))}
-                    />
-                    <Input
-                      type="number"
-                      min={1}
-                      value={taskForm.estimatedMinutes}
-                      onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, estimatedMinutes: event.target.value }))
-                      }
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={isSaving === "create-task"}
-                    className="transition-transform duration-200 hover:-translate-y-0.5"
-                  >
-                    Dodaj zadatak
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {taskEditor ? (
-              <Card className="notion-surface border-primary/30 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                <CardHeader>
-                  <CardTitle>Izmena zadatka</CardTitle>
-                  <CardDescription>Izmeni sve informacije o zadatku.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Input
-                    value={taskEditor.form.title}
-                    onChange={(event) =>
-                      setTaskEditor((current) =>
-                        current ? { ...current, form: { ...current.form, title: event.target.value } } : current,
-                      )
-                    }
-                  />
-                  <Textarea
-                    rows={3}
-                    value={taskEditor.form.description}
-                    onChange={(event) =>
-                      setTaskEditor((current) =>
-                        current ? { ...current, form: { ...current.form, description: event.target.value } } : current,
-                      )
-                    }
-                  />
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskEditor.form.categoryId}
-                      onChange={(event) =>
-                        setTaskEditor((current) =>
-                          current ? { ...current, form: { ...current.form, categoryId: event.target.value } } : current,
-                        )
-                      }
-                    >
-                      <option value="">Bez kategorije</option>
-                      {categories.map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskEditor.form.priority}
-                      onChange={(event) =>
-                        setTaskEditor((current) =>
-                          current
-                            ? { ...current, form: { ...current.form, priority: event.target.value as TaskPriority } }
-                            : current,
-                        )
-                      }
-                    >
-                      {taskPriorityOptions.map((entry) => (
-                        <option key={entry.value} value={entry.value}>
-                          {entry.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                      value={taskEditor.form.status}
-                      onChange={(event) =>
-                        setTaskEditor((current) =>
-                          current
-                            ? { ...current, form: { ...current.form, status: event.target.value as TaskStatus } }
-                            : current,
-                        )
-                      }
-                    >
-                      {taskStatusOptions.map((entry) => (
-                        <option key={entry.value} value={entry.value}>
-                          {entry.label}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      type="date"
-                      value={taskEditor.form.dueDate}
-                      onChange={(event) =>
-                        setTaskEditor((current) =>
-                          current ? { ...current, form: { ...current.form, dueDate: event.target.value } } : current,
-                        )
-                      }
-                    />
-                    <Input
-                      type="number"
-                      min={1}
-                      value={taskEditor.form.estimatedMinutes}
-                      onChange={(event) =>
-                        setTaskEditor((current) =>
-                          current
-                            ? {
-                                ...current,
-                                form: { ...current.form, estimatedMinutes: event.target.value },
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => void saveEditor()}
-                      disabled={isSaving === `edit-task-${taskEditor.id}`}
-                      className="transition-transform duration-200 hover:-translate-y-0.5"
-                    >
-                      Sacuvaj
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setTaskEditor(null)}
-                      className="transition-transform duration-200 hover:-translate-y-0.5"
-                    >
-                      Otkazi
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
-              <CardHeader>
-                <CardTitle>Pretraga i filtriranje zadataka</CardTitle>
-                <CardDescription>Filtriranje po kljucnim recima, kategoriji, statusu i prioritetu.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                  <Input
-                    placeholder="Pretraga..."
-                    value={filters.query}
-                    onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
-                  />
-                  <select
-                    className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                    value={filters.categoryId}
-                    onChange={(event) => setFilters((current) => ({ ...current, categoryId: event.target.value }))}
-                  >
-                    <option value="">Sve kategorije</option>
-                    {categories.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                    value={filters.status}
-                    onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-                  >
-                    <option value="">Svi statusi</option>
-                    {taskStatusOptions.map((entry) => (
-                      <option key={entry.value} value={entry.value}>
-                        {entry.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="h-7 rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
-                    value={filters.priority}
-                    onChange={(event) => setFilters((current) => ({ ...current, priority: event.target.value }))}
-                  >
-                    <option value="">Svi prioriteti</option>
-                    {taskPriorityOptions.map((entry) => (
-                      <option key={entry.value} value={entry.value}>
-                        {entry.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => void fetchTasks()}
-                    className="transition-transform duration-200 hover:-translate-y-0.5"
-                  >
-                    Primeni filtere
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="transition-transform duration-200 hover:-translate-y-0.5"
-                    onClick={() => setFilters({ query: "", categoryId: "", status: "", priority: "" })}
-                  >
-                    Reset filtera
-                  </Button>
-                </div>
-                {metaTotal && metaTotal > tasks.length ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Prikazano {tasks.length} od {metaTotal} zadataka.
-                  </p>
-                ) : null}
-
-                {isLoading ? (
-                  <SectionLoader label="Ucitavanje zadataka..." />
-                ) : tasks.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Nema zadataka za aktivne filtere.</p>
+                {lists.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nemas nijednu listu. Kreiraj listu pa je izaberi.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {tasks.map((task) => {
-                      const statusMeta = taskStatusClassMap[task.status];
-                      const statusLabel = taskStatusOptions.find((entry) => entry.value === task.status)?.label;
-                      return (
-                        <article
-                          key={task.id}
-                          className={`rounded-lg border bg-background p-3 text-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-sm ${statusMeta.cardBorder}`}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <h3
-                                className={`text-sm font-medium ${
-                                  task.status === "done" ? "line-through text-muted-foreground" : ""
-                                }`}
-                              >
-                                {task.title}
-                              </h3>
-                              <p className="text-muted-foreground">{task.description || "Bez opisa"}</p>
-                            </div>
-                            <div className="flex gap-1">
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                className="transition-transform duration-200 hover:-translate-y-0.5"
-                                onClick={() => openEditor(task)}
-                              >
-                                <RiEdit2Line data-icon="inline-start" />
-                                Uredi
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="destructive"
-                                className="transition-transform duration-200 hover:-translate-y-0.5"
-                                onClick={() => void deleteTask(task)}
-                                disabled={isSaving === `delete-task-${task.id}`}
-                              >
-                                <RiDeleteBinLine data-icon="inline-start" />
-                                Obrisi
-                              </Button>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <span className={`rounded border px-2 py-0.5 ${statusMeta.badge}`}>Status: {statusLabel}</span>
-                            <span className="rounded border px-2 py-0.5">
-                              Prioritet: {taskPriorityOptions.find((entry) => entry.value === task.priority)?.label}
-                            </span>
-                            <span className="rounded border px-2 py-0.5">Procena: {task.estimatedMinutes} min</span>
-                            <span className="rounded border px-2 py-0.5">
-                              Rok: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "bez roka"}
-                            </span>
-                            {task.categoryId ? (
-                              <span className="rounded border px-2 py-0.5">
-                                Kategorija: {categoryMap.get(task.categoryId)?.name ?? "Nepoznata"}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.not_started.quickButton}`}
-                              onClick={() => void quickStatus(task, "not_started")}
-                              disabled={isSaving === `status-${task.id}`}
-                            >
-                              Nije zapoceto
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.in_progress.quickButton}`}
-                              onClick={() => void quickStatus(task, "in_progress")}
-                              disabled={isSaving === `status-${task.id}`}
-                            >
-                              U toku
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.done.quickButton}`}
-                              onClick={() => void quickStatus(task, "done")}
-                              disabled={isSaving === `status-${task.id}`}
-                            >
-                              <RiCheckDoubleLine data-icon="inline-start" />
-                              Uradjeno
-                            </Button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Klikni na listu da otkljucas kreiranje, filtriranje i prikaz zadataka.
+                  </p>
                 )}
               </CardContent>
             </Card>
-          </>
-        )}
+          ) : (
+            <>
+              <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300 hover:-translate-y-0.5">
+                <CardHeader>
+                  <CardTitle>Novi zadatak</CardTitle>
+                  <CardDescription>
+                    Aktivna lista: <span className="font-medium">{selectedList.title}</span> | Korisnik:{" "}
+                    <span className="font-medium">{targetUserName}</span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={createTask} className="space-y-3 animate-in fade-in-0 duration-300">
+                    <Input
+                      placeholder="Naziv zadatka"
+                      value={taskForm.title}
+                      onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))}
+                    />
+                    <Textarea
+                      rows={3}
+                      placeholder="Opis"
+                      value={taskForm.description}
+                      onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))}
+                    />
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                      <Select
+                        value={taskForm.categoryId || "none"}
+                        onValueChange={(value) =>
+                          setTaskForm((current) => ({
+                            ...current,
+                            categoryId: value && value !== "none" ? value : "",
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Bez kategorije" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Bez kategorije</SelectItem>
+                          {categories.map((entry) => (
+                            <SelectItem key={entry.id} value={entry.id}>
+                              {entry.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={taskForm.priority}
+                        onValueChange={(value) =>
+                          setTaskForm((current) => ({ ...current, priority: value as TaskPriority }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Prioritet" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {taskPriorityOptions.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={taskForm.status}
+                        onValueChange={(value) =>
+                          setTaskForm((current) => ({ ...current, status: value as TaskStatus }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {taskStatusOptions.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Input
+                        type="date"
+                        value={taskForm.dueDate}
+                        onChange={(event) => setTaskForm((current) => ({ ...current, dueDate: event.target.value }))}
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        value={taskForm.estimatedMinutes}
+                        onChange={(event) =>
+                          setTaskForm((current) => ({ ...current, estimatedMinutes: event.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="submit"
+                        disabled={isSaving === "create-task"}
+                        className="transition-transform duration-200 hover:-translate-y-0.5"
+                      >
+                        Dodaj zadatak
+                      </Button>
+                      <Badge variant="outline" className="gap-1">
+                        <RiTimerLine />
+                        Procena: {taskForm.estimatedMinutes || "0"} min
+                      </Badge>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {taskEditor ? (
+                <Card className="notion-surface border-primary/30 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                  <CardHeader>
+                    <CardTitle>Izmena zadatka</CardTitle>
+                    <CardDescription>Izmeni sve informacije o zadatku.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Input
+                      value={taskEditor.form.title}
+                      onChange={(event) =>
+                        setTaskEditor((current) =>
+                          current ? { ...current, form: { ...current.form, title: event.target.value } } : current,
+                        )
+                      }
+                    />
+                    <Textarea
+                      rows={3}
+                      value={taskEditor.form.description}
+                      onChange={(event) =>
+                        setTaskEditor((current) =>
+                          current ? { ...current, form: { ...current.form, description: event.target.value } } : current,
+                        )
+                      }
+                    />
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                      <Select
+                        value={taskEditor.form.categoryId || "none"}
+                        onValueChange={(value) =>
+                          setTaskEditor((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  form: {
+                                    ...current.form,
+                                    categoryId: value && value !== "none" ? value : "",
+                                  },
+                                }
+                              : current,
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Bez kategorije" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Bez kategorije</SelectItem>
+                          {categories.map((entry) => (
+                            <SelectItem key={entry.id} value={entry.id}>
+                              {entry.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={taskEditor.form.priority}
+                        onValueChange={(value) =>
+                          setTaskEditor((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  form: { ...current.form, priority: value as TaskPriority },
+                                }
+                              : current,
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Prioritet" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {taskPriorityOptions.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={taskEditor.form.status}
+                        onValueChange={(value) =>
+                          setTaskEditor((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  form: { ...current.form, status: value as TaskStatus },
+                                }
+                              : current,
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {taskStatusOptions.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Input
+                        type="date"
+                        value={taskEditor.form.dueDate}
+                        onChange={(event) =>
+                          setTaskEditor((current) =>
+                            current ? { ...current, form: { ...current.form, dueDate: event.target.value } } : current,
+                          )
+                        }
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        value={taskEditor.form.estimatedMinutes}
+                        onChange={(event) =>
+                          setTaskEditor((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  form: { ...current.form, estimatedMinutes: event.target.value },
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => void saveEditor()}
+                        disabled={isSaving === `edit-task-${taskEditor.id}`}
+                        className="transition-transform duration-200 hover:-translate-y-0.5"
+                      >
+                        Sacuvaj
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setTaskEditor(null)}
+                        className="transition-transform duration-200 hover:-translate-y-0.5"
+                      >
+                        Otkazi
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
+                <CardHeader>
+                  <CardTitle>Pretraga i filtriranje zadataka</CardTitle>
+                  <CardDescription>Filtriranje po recima, kategoriji, statusu i prioritetu.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                    <Input
+                      placeholder="Pretraga..."
+                      value={filters.query}
+                      onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+                    />
+
+                    <Select
+                      value={filters.categoryId || "all"}
+                      onValueChange={(value) =>
+                        setFilters((current) => ({
+                          ...current,
+                          categoryId: value && value !== "all" ? value : "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Sve kategorije" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Sve kategorije</SelectItem>
+                        {categories.map((entry) => (
+                          <SelectItem key={entry.id} value={entry.id}>
+                            {entry.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={filters.status || "all"}
+                      onValueChange={(value) =>
+                        setFilters((current) => ({
+                          ...current,
+                          status: value && value !== "all" ? value : "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Svi statusi" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Svi statusi</SelectItem>
+                        {taskStatusOptions.map((entry) => (
+                          <SelectItem key={entry.value} value={entry.value}>
+                            {entry.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={filters.priority || "all"}
+                      onValueChange={(value) =>
+                        setFilters((current) => ({
+                          ...current,
+                          priority: value && value !== "all" ? value : "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Svi prioriteti" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Svi prioriteti</SelectItem>
+                        {taskPriorityOptions.map((entry) => (
+                          <SelectItem key={entry.value} value={entry.value}>
+                            {entry.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => void fetchTasks()}
+                      className="transition-transform duration-200 hover:-translate-y-0.5"
+                    >
+                      Primeni filtere
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="transition-transform duration-200 hover:-translate-y-0.5"
+                      onClick={() => setFilters({ query: "", categoryId: "", status: "", priority: "" })}
+                    >
+                      Reset filtera
+                    </Button>
+                    <Badge variant="outline" className="ml-auto">
+                      Otvoreni: {pendingTasksCount}
+                    </Badge>
+                  </div>
+
+                  {metaTotal && metaTotal > tasks.length ? (
+                    <p className="text-[11px] text-muted-foreground">Prikazano {tasks.length} od {metaTotal} zadataka.</p>
+                  ) : null}
+
+                  {isLoading ? (
+                    <SectionLoader label="Ucitavanje zadataka..." />
+                  ) : tasks.length === 0 ? (
+                    <p className="rounded-md border border-dashed bg-background/65 p-3 text-xs text-muted-foreground">
+                      Nema zadataka za aktivne filtere.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {tasks.map((task) => {
+                        const statusMeta = taskStatusClassMap[task.status];
+                        const statusLabel = taskStatusOptions.find((entry) => entry.value === task.status)?.label;
+                        const priorityLabel = taskPriorityOptions.find((entry) => entry.value === task.priority)?.label;
+
+                        return (
+                          <article
+                            key={task.id}
+                            className={cn(
+                              "rounded-lg border bg-background p-3 text-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-sm",
+                              statusMeta.cardBorder,
+                            )}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <h3
+                                  className={cn(
+                                    "text-sm font-medium",
+                                    task.status === "done" && "line-through text-muted-foreground",
+                                  )}
+                                >
+                                  {task.title}
+                                </h3>
+                                <p className="text-muted-foreground">{task.description || "Bez opisa"}</p>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  className="transition-transform duration-200 hover:-translate-y-0.5"
+                                  onClick={() => openEditor(task)}
+                                >
+                                  <RiEdit2Line data-icon="inline-start" />
+                                  Uredi
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="destructive"
+                                  className="transition-transform duration-200 hover:-translate-y-0.5"
+                                  onClick={() => setDeleteTaskDialog(task)}
+                                  disabled={isSaving === `delete-task-${task.id}`}
+                                >
+                                  <RiDeleteBinLine data-icon="inline-start" />
+                                  Obrisi
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Badge variant="outline" className={statusMeta.badge}>
+                                Status: {statusLabel}
+                              </Badge>
+                              <Badge variant="outline">Prioritet: {priorityLabel}</Badge>
+                              <Badge variant="outline">Procena: {task.estimatedMinutes} min</Badge>
+                              <Badge variant="outline">Rok: {formatDate(task.dueDate)}</Badge>
+                              {task.categoryId ? (
+                                <Badge variant="outline">
+                                  Kategorija: {categoryMap.get(task.categoryId)?.name ?? "Nepoznata"}
+                                </Badge>
+                              ) : null}
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.not_started.quickButton}`}
+                                onClick={() => void quickStatus(task, "not_started")}
+                                disabled={isSaving === `status-${task.id}`}
+                              >
+                                Nije zapoceto
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.in_progress.quickButton}`}
+                                onClick={() => void quickStatus(task, "in_progress")}
+                                disabled={isSaving === `status-${task.id}`}
+                              >
+                                U toku
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className={`transition-transform duration-200 hover:-translate-y-0.5 ${taskStatusClassMap.done.quickButton}`}
+                                onClick={() => void quickStatus(task, "done")}
+                                disabled={isSaving === `status-${task.id}`}
+                              >
+                                <RiCheckDoubleLine data-icon="inline-start" />
+                                Uradjeno
+                              </Button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+
+      <AlertDialog open={Boolean(renameListDialog)} onOpenChange={(open) => !open && setRenameListDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Izmeni naziv liste</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unesi novi naziv za listu <span className="font-medium">{renameListDialog?.initialTitle}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <Input
+            value={renameListDialog?.value ?? ""}
+            onChange={(event) =>
+              setRenameListDialog((current) =>
+                current ? { ...current, value: event.target.value } : current,
+              )
+            }
+            placeholder="Novi naziv"
+            autoFocus
+          />
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(renameListDialog && isSaving === `rename-list-${renameListDialog.id}`)}
+              onClick={() => void submitRenameListDialog()}
+            >
+              Sacuvaj
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deleteListDialog)} onOpenChange={(open) => !open && setDeleteListDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Obrisi listu?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Brisanjem liste <span className="font-medium">{deleteListDialog?.title}</span> uklanjas i njene zadatke.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+              onClick={() => {
+                if (!deleteListDialog) return;
+                const target = deleteListDialog;
+                setDeleteListDialog(null);
+                void deleteList(target);
+              }}
+            >
+              Obrisi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deleteTaskDialog)} onOpenChange={(open) => !open && setDeleteTaskDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Obrisi zadatak?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Potvrdjujes trajno brisanje zadatka <span className="font-medium">{deleteTaskDialog?.title}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+              onClick={() => {
+                if (!deleteTaskDialog) return;
+                const target = deleteTaskDialog;
+                setDeleteTaskDialog(null);
+                void deleteTask(target);
+              }}
+            >
+              Obrisi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

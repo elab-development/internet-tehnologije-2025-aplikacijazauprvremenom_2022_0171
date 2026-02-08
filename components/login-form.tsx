@@ -26,8 +26,8 @@ import { authClient } from "@/lib/auth-client";
 import Link from "next/link";
 
 const loginSchema = z.object({
-  email: z.email(),
-  password: z.string().min(8),
+  email: z.string().email("Unesite ispravnu email adresu."),
+  password: z.string().min(8, "Lozinka mora imati najmanje 8 karaktera."),
 });
 
 export function LoginForm({
@@ -47,10 +47,10 @@ export function LoginForm({
       { email: data.email, password: data.password, callbackURL: "/" },
       {
         onSuccess: () => {
-          toast.success("Login successful!");
+          toast.success("Uspesna prijava.");
         },
         onError: (error) => {
-          toast.error(`Login failed: ${error.error.message}`);
+          toast.error(error.error.message || "Prijava nije uspela.");
         },
         onResponse: () => {
           form.resetField("password");
@@ -59,16 +59,18 @@ export function LoginForm({
     );
   };
 
+  const isSubmitting = form.formState.isSubmitting;
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="border-primary/20 bg-background/85 backdrop-blur">
         <CardHeader className="border-b pb-3">
           <CardTitle className="flex items-center gap-2">
             <RiLockPasswordLine />
-            Login to your account
+            Prijavi se na svoj nalog
           </CardTitle>
           <CardDescription>
-            Enter your credentials and continue to your dashboard.
+            Unesi svoje podatke i nastavi na kontrolnu tablu.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -79,12 +81,12 @@ export function LoginForm({
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="email">Email</FieldLabel>
+                    <FieldLabel htmlFor="email">Email adresa</FieldLabel>
                     <Input
                       {...field}
                       id="email"
                       type="email"
-                      placeholder="m@example.com"
+                      placeholder="ime@primer.rs"
                       aria-invalid={fieldState.invalid}
                     />
                     {fieldState.invalid && (
@@ -99,7 +101,7 @@ export function LoginForm({
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
                     <div className="flex items-center">
-                      <FieldLabel htmlFor="password">Password</FieldLabel>
+                      <FieldLabel htmlFor="password">Lozinka</FieldLabel>
                     </div>
                     <Input
                       aria-invalid={fieldState.invalid}
@@ -115,15 +117,15 @@ export function LoginForm({
               />
 
               <Field>
-                <Button type="submit" className="w-full">
-                  Login
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? "Prijavljivanje..." : "Prijavi se"}
                   <RiArrowRightUpLine data-icon="inline-end" />
                 </Button>
 
                 <FieldDescription className="text-center">
-                  Don&apos;t have an account?{" "}
+                  Nemas nalog?{" "}
                   <Link href="/register" className="font-medium underline underline-offset-2">
-                    Sign up
+                    Registruj se
                   </Link>
                 </FieldDescription>
               </Field>

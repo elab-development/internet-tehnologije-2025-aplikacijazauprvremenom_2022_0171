@@ -71,11 +71,11 @@ export async function requireUserId(request: NextRequest) {
 export async function requireActor(request: NextRequest) {
   const actor = await getSessionActor(request);
   if (!actor) {
-    return { ok: false as const, response: jsonError("Unauthorized", 401) };
+    return { ok: false as const, response: jsonError("Neautorizovan pristup", 401) };
   }
 
   if (!actor.isActive) {
-    return { ok: false as const, response: jsonError("Account is deactivated", 403) };
+    return { ok: false as const, response: jsonError("Nalog je deaktiviran", 403) };
   }
 
   return { ok: true as const, actor };
@@ -121,7 +121,7 @@ export async function resolveTargetUserId(
   const canAccess = await canActorAccessUser(actor, targetUserId);
 
   if (!canAccess) {
-    return { ok: false as const, response: jsonError("Forbidden", 403) };
+    return { ok: false as const, response: jsonError("Nemate dozvolu za ovu akciju", 403) };
   }
 
   return { ok: true as const, targetUserId };
@@ -146,7 +146,7 @@ export async function requireAdmin(request: NextRequest) {
   }
 
   if (!isAdmin(actorGuard.actor.role)) {
-    return { ok: false as const, response: jsonError("Forbidden", 403) };
+    return { ok: false as const, response: jsonError("Nemate dozvolu za ovu akciju", 403) };
   }
 
   return { ok: true as const, adminId: actorGuard.actor.id };

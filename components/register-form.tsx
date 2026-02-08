@@ -27,9 +27,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const registerSchema = z.object({
-  name: z.string().min(2),
-  email: z.email(),
-  password: z.string().min(8),
+  name: z.string().min(2, "Ime mora imati najmanje 2 karaktera."),
+  email: z.string().email("Unesite ispravnu email adresu."),
+  password: z.string().min(8, "Lozinka mora imati najmanje 8 karaktera."),
 });
 
 export function RegisterForm({
@@ -56,11 +56,11 @@ export function RegisterForm({
       },
       {
         onSuccess: () => {
-          toast.success("Register successful!");
+          toast.success("Registracija je uspesna.");
           router.push("/");
         },
         onError: (error) => {
-          toast.error(`Register failed: ${error.error.message}`);
+          toast.error(error.error.message || "Registracija nije uspela.");
         },
         onResponse: () => {
           form.resetField("password");
@@ -69,16 +69,18 @@ export function RegisterForm({
     );
   };
 
+  const isSubmitting = form.formState.isSubmitting;
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="border-primary/20 bg-background/85 backdrop-blur">
         <CardHeader className="border-b pb-3">
           <CardTitle className="flex items-center gap-2">
             <RiUserAddLine />
-            Create your account
+            Napravi svoj nalog
           </CardTitle>
           <CardDescription>
-            Start managing tasks, lists, and deadlines in one place.
+            Pocni da upravljas zadacima, listama i rokovima na jednom mestu.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -89,12 +91,12 @@ export function RegisterForm({
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="name">Name</FieldLabel>
+                    <FieldLabel htmlFor="name">Ime</FieldLabel>
                     <Input
                       {...field}
                       id="name"
                       type="text"
-                      placeholder="Your name"
+                      placeholder="Tvoje ime"
                       aria-invalid={fieldState.invalid}
                     />
                     {fieldState.invalid && (
@@ -108,12 +110,12 @@ export function RegisterForm({
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="email">Email</FieldLabel>
+                    <FieldLabel htmlFor="email">Email adresa</FieldLabel>
                     <Input
                       {...field}
                       id="email"
                       type="email"
-                      placeholder="m@example.com"
+                      placeholder="ime@primer.rs"
                       aria-invalid={fieldState.invalid}
                     />
                     {fieldState.invalid && (
@@ -128,7 +130,7 @@ export function RegisterForm({
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
                     <div className="flex items-center">
-                      <FieldLabel htmlFor="password">Password</FieldLabel>
+                      <FieldLabel htmlFor="password">Lozinka</FieldLabel>
                     </div>
                     <Input
                       aria-invalid={fieldState.invalid}
@@ -144,15 +146,15 @@ export function RegisterForm({
               />
 
               <Field>
-                <Button type="submit" className="w-full">
-                  Register
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? "Registracija..." : "Registruj se"}
                   <RiArrowRightUpLine data-icon="inline-end" />
                 </Button>
 
                 <FieldDescription className="text-center">
-                  Already a member?{" "}
+                  Vec imas nalog?{" "}
                   <Link href="/login" className="font-medium underline underline-offset-2">
-                    Sign in
+                    Prijavi se
                   </Link>
                 </FieldDescription>
               </Field>

@@ -20,7 +20,7 @@ const updateUserSchema = z
     managerId: z.string().trim().min(1).nullable().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 function toApiError(error: unknown) {
@@ -28,7 +28,7 @@ function toApiError(error: unknown) {
     return jsonError(error.message, error.status, error.details);
   }
 
-  return jsonError("Internal server error", 500);
+  return jsonError("Interna greska servera", 500);
 }
 
 export async function PATCH(
@@ -43,28 +43,28 @@ export async function PATCH(
   const params = await context.params;
   const parsedId = userIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid user id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID korisnika", 400, parsedId.error.flatten());
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan JSON payload", 400);
   }
 
   const parsedBody = updateUserSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
   const targetUserId = parsedId.data;
 
   if (targetUserId === adminGuard.adminId && input.role && input.role !== "admin") {
-    return jsonError("Admin cannot remove own admin role", 400);
+    return jsonError("Administrator ne moze da ukloni sopstvenu admin ulogu", 400);
   }
 
   if (targetUserId === adminGuard.adminId && input.isActive === false) {
-    return jsonError("Admin cannot deactivate own account", 400);
+    return jsonError("Administrator ne moze da deaktivira sopstveni nalog", 400);
   }
 
   const targetUser = await db.query.user.findFirst({
@@ -78,7 +78,7 @@ export async function PATCH(
   });
 
   if (!targetUser) {
-    return jsonError("User not found", 404);
+    return jsonError("Korisnik nije pronadjen", 404);
   }
 
   let currentRole = targetUser.role;
@@ -94,7 +94,7 @@ export async function PATCH(
     if (shouldRemoveManagerRole) {
       const nextRole = input.role;
       if (!nextRole || nextRole === "manager") {
-        return jsonError("Invalid role transition", 400);
+        return jsonError("Neispravna promena uloge", 400);
       }
 
       const result = await removeManagerRole({
@@ -104,7 +104,7 @@ export async function PATCH(
       });
 
       if (!result.user) {
-        return jsonError("User not found", 404);
+        return jsonError("Korisnik nije pronadjen", 404);
       }
 
       currentRole = result.user.role;
@@ -135,7 +135,7 @@ export async function PATCH(
 
     if (input.managerId !== undefined) {
       if (currentRole !== "user") {
-        return jsonError("Only USER can be assigned to manager", 400);
+        return jsonError("Samo korisnik sa USER ulogom moze biti dodeljen menadzeru", 400);
       }
 
       const assignedUser = await assignUserToManager({
@@ -167,7 +167,7 @@ export async function PATCH(
       .limit(1);
 
     if (!updatedUser) {
-      return jsonError("User not found", 404);
+      return jsonError("Korisnik nije pronadjen", 404);
     }
 
     const [managerUser, teamSizeRow] = await Promise.all([
@@ -226,12 +226,12 @@ export async function DELETE(
   const params = await context.params;
   const parsedId = userIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid user id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID korisnika", 400, parsedId.error.flatten());
   }
 
   const targetUserId = parsedId.data;
   if (targetUserId === adminGuard.adminId) {
-    return jsonError("Admin cannot delete own account", 400);
+    return jsonError("Administrator ne moze da obrise sopstveni nalog", 400);
   }
 
   const [deletedUser] = await db
@@ -249,7 +249,7 @@ export async function DELETE(
     });
 
   if (!deletedUser) {
-    return jsonError("User not found", 404);
+    return jsonError("Korisnik nije pronadjen", 404);
   }
 
   await db.insert(adminAuditLogs).values({

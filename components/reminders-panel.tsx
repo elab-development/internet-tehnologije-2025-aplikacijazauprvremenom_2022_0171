@@ -1,10 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { RiAlarmWarningLine, RiCalendarEventLine, RiNotification3Line } from "@remixicon/react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SectionLoader } from "@/components/ui/section-loader";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
@@ -55,6 +74,7 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [form, setForm] = useState(emptyReminderForm);
+  const [deleteDialog, setDeleteDialog] = useState<Reminder | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
@@ -66,12 +86,12 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
   }, []);
 
   const sortedReminders = useMemo(
-    () =>
-      [...reminders].sort(
-        (a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime(),
-      ),
+    () => [...reminders].sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime()),
     [reminders],
   );
+
+  const taskById = useMemo(() => new Map(tasks.map((entry) => [entry.id, entry])), [tasks]);
+  const eventById = useMemo(() => new Map(events.map((entry) => [entry.id, entry])), [events]);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -88,6 +108,7 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
         userId: targetUserId,
         limit: String(Math.min(200, QUERY_LIMITS.reminders.max)),
       });
+
       const [tasksResponse, eventsResponse, remindersResponse] = await Promise.all([
         fetch(`/api/tasks?${tasksParams.toString()}`),
         fetch(`/api/events?${eventsParams.toString()}`),
@@ -98,17 +119,17 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
       const eventsPayload = (await eventsResponse.json()) as ApiResponse<CalendarEvent[]>;
       const remindersPayload = (await remindersResponse.json()) as ApiResponse<Reminder[]>;
 
-      if (!tasksResponse.ok) throw new Error(tasksPayload.error?.message ?? "Neuspešno učitavanje taskova");
-      if (!eventsResponse.ok) throw new Error(eventsPayload.error?.message ?? "Neuspešno učitavanje događaja");
+      if (!tasksResponse.ok) throw new Error(tasksPayload.error?.message ?? "Neuspesno ucitavanje zadataka");
+      if (!eventsResponse.ok) throw new Error(eventsPayload.error?.message ?? "Neuspesno ucitavanje dogadjaja");
       if (!remindersResponse.ok) {
-        throw new Error(remindersPayload.error?.message ?? "Neuspešno učitavanje podsetnika");
+        throw new Error(remindersPayload.error?.message ?? "Neuspesno ucitavanje podsetnika");
       }
 
       setTasks(tasksPayload.data ?? []);
       setEvents(eventsPayload.data ?? []);
       setReminders(remindersPayload.data ?? []);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri učitavanju podsetnika");
+      toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju podsetnika");
     } finally {
       setIsLoading(false);
     }
@@ -118,37 +139,38 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
     void fetchAll();
   }, [fetchAll]);
 
-  const dispatchDueReminders = useCallback(async (showUnavailableInfo = false) => {
-    if (!canManageDispatch) {
-      if (showUnavailableInfo) {
-        toast.info("Slanje podsetnika je dostupno samo za trenutno prijavljen nalog.");
-      }
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/reminders/dispatch", { method: "POST" });
-      const payload = (await response.json()) as ApiResponse<
-        Array<{ id: string; message: string; remindAt: string }>
-      >;
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? "Greška pri proveri podsetnika");
+  const dispatchDueReminders = useCallback(
+    async (showUnavailableInfo = false) => {
+      if (!canManageDispatch) {
+        if (showUnavailableInfo) {
+          toast.info("Slanje podsetnika je dostupno samo za trenutno prijavljen nalog.");
+        }
+        return;
       }
 
-      if (payload.data && payload.data.length > 0) {
-        payload.data.forEach((entry) => {
-          toast.info(`Podsetnik: ${entry.message}`);
-          if (permission === "granted" && typeof Notification !== "undefined") {
-            new Notification("Podsetnik", { body: entry.message });
-          }
-        });
-      }
+      try {
+        const response = await fetch("/api/reminders/dispatch", { method: "POST" });
+        const payload = (await response.json()) as ApiResponse<Array<{ id: string; message: string; remindAt: string }>>;
+        if (!response.ok) {
+          throw new Error(payload.error?.message ?? "Greska pri proveri podsetnika");
+        }
 
-      await fetchAll();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri notifikaciji");
-    }
-  }, [canManageDispatch, fetchAll, permission]);
+        if (payload.data && payload.data.length > 0) {
+          payload.data.forEach((entry) => {
+            toast.info(`Podsetnik: ${entry.message}`);
+            if (permission === "granted" && typeof Notification !== "undefined") {
+              new Notification("Podsetnik", { body: entry.message });
+            }
+          });
+        }
+
+        await fetchAll();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Greska pri notifikaciji");
+      }
+    },
+    [canManageDispatch, fetchAll, permission],
+  );
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -165,7 +187,7 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
       return;
     }
     if (!form.taskId && !form.eventId) {
-      toast.error("Podsetnik mora biti vezan za zadatak ili događaj.");
+      toast.error("Podsetnik mora biti vezan za zadatak ili dogadjaj.");
       return;
     }
 
@@ -184,14 +206,14 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
       });
       const payload = (await response.json()) as ApiResponse<Reminder>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešno kreiranje podsetnika");
+        throw new Error(payload.error?.message ?? "Neuspesno kreiranje podsetnika");
       }
 
       setForm(emptyReminderForm());
       toast.success("Podsetnik je kreiran.");
       await fetchAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri kreiranju podsetnika");
+      toast.error(error instanceof Error ? error.message : "Greska pri kreiranju podsetnika");
     } finally {
       setIsSaving(null);
     }
@@ -211,29 +233,28 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
       });
       const payload = (await response.json()) as ApiResponse<Reminder>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešna promena statusa");
+        throw new Error(payload.error?.message ?? "Neuspesna promena statusa");
       }
       await fetchAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri promeni statusa");
+      toast.error(error instanceof Error ? error.message : "Greska pri promeni statusa");
     } finally {
       setIsSaving(null);
     }
   }
 
   async function deleteReminder(reminder: Reminder) {
-    if (!window.confirm("Obrisati podsetnik?")) return;
     setIsSaving(`delete-${reminder.id}`);
     try {
       const response = await fetch(`/api/reminders/${reminder.id}`, { method: "DELETE" });
       const payload = (await response.json()) as ApiResponse<{ id: string }>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešno brisanje podsetnika");
+        throw new Error(payload.error?.message ?? "Neuspesno brisanje podsetnika");
       }
       toast.success("Podsetnik je obrisan.");
       await fetchAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri brisanju podsetnika");
+      toast.error(error instanceof Error ? error.message : "Greska pri brisanju podsetnika");
     } finally {
       setIsSaving(null);
     }
@@ -242,149 +263,197 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
   async function enableNotifications() {
     if (typeof Notification === "undefined") {
       setPermission("unsupported");
-      toast.error("Browser ne podržava notifikacije.");
+      toast.error("Browser ne podrzava notifikacije.");
       return;
     }
     const result = await Notification.requestPermission();
     setPermission(result);
     if (result === "granted") {
-      toast.success("Notifikacije su omogućene.");
+      toast.success("Notifikacije su omogucene.");
     }
   }
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
-      <Card className="notion-surface">
-        <CardHeader>
-          <CardTitle>Novi podsetnik</CardTitle>
-          <CardDescription>Podsetnik za zadatak ili kalendarsku obavezu korisnika {targetUserName}.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={createReminder} className="space-y-3">
-            <Input
-              placeholder="Tekst podsetnika"
-              value={form.message}
-              onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
-            />
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <select
-                className="h-7 rounded-md border bg-background px-2 text-xs"
-                value={form.taskId}
-                onChange={(event) => setForm((current) => ({ ...current, taskId: event.target.value }))}
-              >
-                <option value="">Bez zadatka</option>
-                {tasks.map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.title}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="h-7 rounded-md border bg-background px-2 text-xs"
-                value={form.eventId}
-                onChange={(event) => setForm((current) => ({ ...current, eventId: event.target.value }))}
-              >
-                <option value="">Bez događaja</option>
-                {events.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Input
-              type="datetime-local"
-              value={form.remindAt}
-              onChange={(event) => setForm((current) => ({ ...current, remindAt: event.target.value }))}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={isSaving === "create"}>
-                Sačuvaj podsetnik
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void dispatchDueReminders(true)}
-                disabled={!canManageDispatch}
-              >
-                Proveri dospele
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void enableNotifications()}
-                disabled={!canManageDispatch}
-              >
-                Omogući notifikacije
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+    <>
+      <div className="grid gap-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 xl:grid-cols-[1fr_1.1fr]">
+        <Card className="notion-surface">
+          <CardHeader>
+            <CardTitle>Novi podsetnik</CardTitle>
+            <CardDescription>Podsetnik za zadatak ili kalendarsku obavezu korisnika {targetUserName}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={createReminder} className="space-y-3">
+              <Input
+                placeholder="Tekst podsetnika"
+                value={form.message}
+                onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+              />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Select
+                  value={form.taskId || "none"}
+                  onValueChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      taskId: value && value !== "none" ? value : "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Bez zadatka" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Bez zadatka</SelectItem>
+                    {tasks.map((task) => (
+                      <SelectItem key={task.id} value={task.id}>
+                        {task.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-      <Card className="notion-surface">
-        <CardHeader>
-          <CardTitle>Podsetnici</CardTitle>
-          <CardDescription>
-            Status notifikacija:{" "}
-            {permission === "granted"
-              ? "odobreno"
-              : permission === "denied"
-                ? "blokirano"
-                : permission === "default"
-                  ? "nije potvrđeno"
-                  : "nije podržano"}
-            {!canManageDispatch ? " | pregled za timskog korisnika" : ""}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <SectionLoader label="Učitavanje podsetnika..." />
-          ) : sortedReminders.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nema podsetnika.</p>
-          ) : (
-            <div className="space-y-2">
-              {sortedReminders.map((entry) => (
-                <article key={entry.id} className="rounded-lg border bg-background p-3 text-xs">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{entry.message}</p>
-                      <p className="text-muted-foreground">{new Date(entry.remindAt).toLocaleString()}</p>
+                <Select
+                  value={form.eventId || "none"}
+                  onValueChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      eventId: value && value !== "none" ? value : "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Bez dogadjaja" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Bez dogadjaja</SelectItem>
+                    {events.map((entry) => (
+                      <SelectItem key={entry.id} value={entry.id}>
+                        {entry.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Input
+                type="datetime-local"
+                value={form.remindAt}
+                onChange={(event) => setForm((current) => ({ ...current, remindAt: event.target.value }))}
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={isSaving === "create"}>
+                  <RiNotification3Line data-icon="inline-start" />
+                  Sacuvaj podsetnik
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void dispatchDueReminders(true)}
+                  disabled={!canManageDispatch}
+                >
+                  <RiAlarmWarningLine data-icon="inline-start" />
+                  Proveri dospele
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void enableNotifications()}
+                  disabled={!canManageDispatch}
+                >
+                  Omoguci notifikacije
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card className="notion-surface">
+          <CardHeader>
+            <CardTitle>Podsetnici</CardTitle>
+            <CardDescription>
+              Status notifikacija:{" "}
+              {permission === "granted"
+                ? "odobreno"
+                : permission === "denied"
+                  ? "blokirano"
+                  : permission === "default"
+                    ? "nije potvrdjeno"
+                    : "nije podrzano"}
+              {!canManageDispatch ? " | pregled za timskog korisnika" : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <SectionLoader label="Ucitavanje podsetnika..." />
+            ) : sortedReminders.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nema podsetnika.</p>
+            ) : (
+              <div className="space-y-2">
+                {sortedReminders.map((entry) => (
+                  <article key={entry.id} className="rounded-lg border bg-background p-3 text-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{entry.message}</p>
+                        <p className="text-muted-foreground">{new Date(entry.remindAt).toLocaleString("sr-RS")}</p>
+                      </div>
+                      <Badge variant={entry.isSent ? "secondary" : "default"}>{entry.isSent ? "Poslato" : "Ceka"}</Badge>
                     </div>
-                    <span
-                      className={`rounded px-2 py-0.5 text-[11px] ${
-                        entry.isSent ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary"
-                      }`}
-                    >
-                      {entry.isSent ? "Poslato" : "Čeka"}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {entry.taskId ? (
-                      <span className="rounded border px-2 py-0.5">
-                        Zadatak: {tasks.find((task) => task.id === entry.taskId)?.title ?? "Nepoznat"}
-                      </span>
-                    ) : null}
-                    {entry.eventId ? (
-                      <span className="rounded border px-2 py-0.5">
-                        Događaj: {events.find((event) => event.id === entry.eventId)?.title ?? "Nepoznat"}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-2 flex gap-1">
-                    <Button size="xs" variant="outline" onClick={() => void toggleReminderStatus(entry)}>
-                      {entry.isSent ? "Vrati na čekanje" : "Označi kao poslato"}
-                    </Button>
-                    <Button size="xs" variant="destructive" onClick={() => void deleteReminder(entry)}>
-                      Obriši
-                    </Button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {entry.taskId ? (
+                        <Badge variant="outline">Zadatak: {taskById.get(entry.taskId)?.title ?? "Nepoznat"}</Badge>
+                      ) : null}
+                      {entry.eventId ? (
+                        <Badge variant="outline">
+                          <RiCalendarEventLine data-icon="inline-start" />
+                          Dogadjaj: {eventById.get(entry.eventId)?.title ?? "Nepoznat"}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex gap-1">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => void toggleReminderStatus(entry)}
+                        disabled={isSaving === `toggle-${entry.id}`}
+                      >
+                        {entry.isSent ? "Vrati na cekanje" : "Oznaci kao poslato"}
+                      </Button>
+                      <Button size="xs" variant="destructive" onClick={() => setDeleteDialog(entry)}>
+                        Obrisi
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <AlertDialog open={Boolean(deleteDialog)} onOpenChange={(open) => !open && setDeleteDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Obrisi podsetnik?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Potvrdjujes trajno brisanje podsetnika sa porukom <span className="font-medium">{deleteDialog?.message}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Otkazi</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+              onClick={() => {
+                if (!deleteDialog) return;
+                const target = deleteDialog;
+                setDeleteDialog(null);
+                void deleteReminder(target);
+              }}
+            >
+              Obrisi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+﻿import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -34,7 +34,7 @@ const updateTaskSchema = z
     estimatedMinutes: z.number().int().min(1).max(10080).optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 function toApiError(error: unknown) {
@@ -42,7 +42,7 @@ function toApiError(error: unknown) {
     return jsonError(error.message, error.status, error.details);
   }
 
-  return jsonError("Internal server error", 500);
+  return jsonError("Interna greska servera", 500);
 }
 
 export async function PATCH(
@@ -57,7 +57,7 @@ export async function PATCH(
   const params = await context.params;
   const parsedId = taskIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid task id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID zadatka", 400, parsedId.error.flatten());
   }
 
   const existingTask = await db.query.tasks.findFirst({
@@ -75,17 +75,17 @@ export async function PATCH(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingTask.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan JSON payload", 400);
   }
 
   const parsedBody = updateTaskSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -94,7 +94,7 @@ export async function PATCH(
   const hasOnlyStatusUpdate = Object.keys(input).every((key) => statusOnlyKeys.has(key));
 
   if (actorGuard.actor.role === "user" && actorGuard.actor.id !== existingTask.userId) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   const lockedForUser = isLockedForUser(
@@ -106,7 +106,7 @@ export async function PATCH(
   if (lockedForUser) {
     if (!hasOnlyStatusUpdate || input.status === undefined) {
       return jsonError(
-        "User can only update status on manager-created task",
+        "Korisnik moze da menja status samo zadatka koji je kreirao menadzer",
         403,
       );
     }
@@ -136,7 +136,7 @@ export async function PATCH(
       });
 
       if (!list) {
-        return jsonError("List does not exist for task owner", 400);
+        return jsonError("Lista ne postoji za vlasnika zadatka", 400);
       }
     }
 
@@ -150,7 +150,7 @@ export async function PATCH(
       });
 
       if (!category) {
-        return jsonError("Category does not exist for task owner", 400);
+        return jsonError("Kategorija ne postoji za vlasnika zadatka", 400);
       }
     }
 
@@ -200,7 +200,7 @@ export async function DELETE(
   const params = await context.params;
   const parsedId = taskIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid task id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID zadatka", 400, parsedId.error.flatten());
   }
 
   try {
@@ -214,3 +214,5 @@ export async function DELETE(
     return toApiError(error);
   }
 }
+
+

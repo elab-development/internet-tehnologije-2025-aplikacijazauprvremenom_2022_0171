@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+﻿import { and, eq, ne } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -11,7 +11,7 @@ const updateProfileSchema = z
     email: z.email().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 export async function GET(request: NextRequest) {
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!profile) {
-    return jsonError("User not found", 404);
+    return jsonError("Korisnik\ nije\ pronadjen", 404);
   }
 
   return NextResponse.json({ data: profile }, { status: 200 });
@@ -48,12 +48,12 @@ export async function PATCH(request: NextRequest) {
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan\ JSON\ payload", 400);
   }
 
   const parsedBody = updateProfileSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -86,8 +86,10 @@ export async function PATCH(request: NextRequest) {
     });
 
   if (!updatedProfile) {
-    return jsonError("User not found", 404);
+    return jsonError("Korisnik\ nije\ pronadjen", 404);
   }
 
   return NextResponse.json({ data: updatedProfile }, { status: 200 });
 }
+
+

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+﻿import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -18,7 +18,7 @@ const updateListSchema = z
     description: z.string().trim().max(5000).nullable().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 export async function PATCH(
@@ -33,7 +33,7 @@ export async function PATCH(
   const params = await context.params;
   const parsedId = listIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid list id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID liste", 400, parsedId.error.flatten());
   }
 
   const existingList = await db.query.todoLists.findFirst({
@@ -49,17 +49,17 @@ export async function PATCH(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingList.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan JSON payload", 400);
   }
 
   const parsedBody = updateListSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -98,7 +98,7 @@ export async function DELETE(
   const params = await context.params;
   const parsedId = listIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid list id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID liste", 400, parsedId.error.flatten());
   }
 
   const existingList = await db.query.todoLists.findFirst({
@@ -114,7 +114,7 @@ export async function DELETE(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingList.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   const [deletedList] = await db
@@ -128,3 +128,5 @@ export async function DELETE(
 
   return NextResponse.json({ data: deletedList }, { status: 200 });
 }
+
+

@@ -155,6 +155,22 @@
       background-color 180ms ease,
       box-shadow 180ms ease;
   }
+
+  :where(select) {
+    color-scheme: light;
+  }
+
+  .dark :where(select) {
+    color-scheme: dark;
+    background-color: color-mix(in oklab, var(--background) 88%, black 12%);
+    color: var(--foreground);
+    border-color: var(--border);
+  }
+
+  .dark :where(select option, select optgroup) {
+    background-color: color-mix(in oklab, var(--background) 84%, black 16%);
+    color: var(--foreground);
+  }
 }
 
 @layer components {

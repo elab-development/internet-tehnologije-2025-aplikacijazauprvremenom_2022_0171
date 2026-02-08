@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+﻿import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -23,7 +23,7 @@ const updateReminderSchema = z
     sentAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 export async function PATCH(
@@ -38,7 +38,7 @@ export async function PATCH(
   const params = await context.params;
   const parsedId = reminderIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid reminder id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID podsetnika", 400, parsedId.error.flatten());
   }
 
   const existingReminder = await db.query.reminders.findFirst({
@@ -57,17 +57,17 @@ export async function PATCH(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingReminder.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan JSON payload", 400);
   }
 
   const parsedBody = updateReminderSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -79,7 +79,7 @@ export async function PATCH(
   );
   const statusOnlyKeys = new Set(["isSent", "sentAt"]);
   if (lockedForUser && !Object.keys(input).every((key) => statusOnlyKeys.has(key))) {
-    return jsonError("User can only update status on manager-created reminder", 403);
+    return jsonError("Korisnik moze da menja status samo podsetnika koji je kreirao menadzer", 403);
   }
 
   const nextTaskId = input.taskId ?? existingReminder.taskId;
@@ -94,7 +94,7 @@ export async function PATCH(
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for reminder owner", 400);
+      return jsonError("Zadatak ne postoji za vlasnika podsetnika", 400);
     }
   }
 
@@ -107,7 +107,7 @@ export async function PATCH(
       columns: { id: true },
     });
     if (!linkedEvent) {
-      return jsonError("Event does not exist for reminder owner", 400);
+      return jsonError("Dogadjaj ne postoji za vlasnika podsetnika", 400);
     }
   }
 
@@ -143,7 +143,7 @@ export async function DELETE(
   const params = await context.params;
   const parsedId = reminderIdSchema.safeParse(params.id);
   if (!parsedId.success) {
-    return jsonError("Invalid reminder id", 400, parsedId.error.flatten());
+    return jsonError("Neispravan ID podsetnika", 400, parsedId.error.flatten());
   }
 
   const existingReminder = await db.query.reminders.findFirst({
@@ -160,7 +160,7 @@ export async function DELETE(
 
   const canAccess = await canActorAccessUser(actorGuard.actor, existingReminder.userId);
   if (!canAccess) {
-    return jsonError("Forbidden", 403);
+    return jsonError("Nemate dozvolu za ovu akciju", 403);
   }
 
   if (
@@ -170,7 +170,7 @@ export async function DELETE(
       existingReminder.createdByUserId,
     )
   ) {
-    return jsonError("User cannot delete manager-created reminder", 403);
+    return jsonError("Korisnik ne moze da obrise podsetnik koji je kreirao menadzer", 403);
   }
 
   const [deletedReminder] = await db
@@ -184,3 +184,5 @@ export async function DELETE(
 
   return NextResponse.json({ data: deletedReminder }, { status: 200 });
 }
+
+

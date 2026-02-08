@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+﻿import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -15,7 +15,7 @@ const updatePreferencesSchema = z
     timezone: z.string().trim().min(1).max(120).optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one field is required for update",
+    message: "Potrebno je bar jedno polje za izmenu",
   });
 
 async function getOrCreatePreferences(userId: string) {
@@ -83,12 +83,12 @@ export async function PATCH(request: NextRequest) {
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan\ JSON\ payload", 400);
   }
 
   const parsedBody = updatePreferencesSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   await getOrCreatePreferences(userGuard.userId);
@@ -132,3 +132,5 @@ export async function PATCH(request: NextRequest) {
 
   return response;
 }
+
+

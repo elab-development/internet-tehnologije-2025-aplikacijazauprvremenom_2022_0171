@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   const parsedQuery = listUsersQuerySchema.safeParse(search);
 
   if (!parsedQuery.success) {
-    return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
+    return jsonError("Neispravni parametri upita", 400, parsedQuery.error.flatten());
   }
 
   const selectedColumns = {

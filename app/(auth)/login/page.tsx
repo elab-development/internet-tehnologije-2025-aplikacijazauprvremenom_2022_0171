@@ -11,11 +11,11 @@ export default function Page() {
               Time Manager
             </p>
             <h1 className="mt-3 text-3xl font-semibold leading-tight">
-              Organize your work in one focused workspace.
+              Organizuj posao na jednom mestu.
             </h1>
           </div>
           <p className="text-xs text-muted-foreground">
-            Use lists, priorities, and calendar planning to keep your day under control.
+            Koristi liste, prioritete, beleske, zadatke i planiranje kroz kalendar da drzis dan pod kontrolom.
           </p>
         </section>
         <div className="w-full md:max-w-[420px]">

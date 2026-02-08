@@ -74,7 +74,7 @@ async function assertManagerActor(managerId: string) {
   });
 
   if (!managerUser || !isManager(managerUser.role) || !managerUser.isActive) {
-    throw new ServiceError(403, "Forbidden");
+    throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
   }
 }
 
@@ -88,7 +88,7 @@ export async function assignUserToManager(input: AssignUserToManagerInput) {
     });
 
     if (!adminUser || !isAdmin(adminUser.role) || !adminUser.isActive) {
-      throw new ServiceError(403, "Forbidden");
+      throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
     }
 
     const targetUser = await tx.query.user.findFirst({
@@ -97,16 +97,16 @@ export async function assignUserToManager(input: AssignUserToManagerInput) {
     });
 
     if (!targetUser) {
-      throw new ServiceError(404, "User not found");
+      throw new ServiceError(404, "Korisnik nije pronadjen");
     }
 
     if (targetUser.role !== "user") {
-      throw new ServiceError(400, "Only USER can be assigned to manager");
+      throw new ServiceError(400, "Samo korisnik sa USER ulogom moze biti dodeljen menadzeru");
     }
 
     if (managerId) {
       if (managerId === targetUser.id) {
-        throw new ServiceError(400, "User cannot be assigned to themselves");
+        throw new ServiceError(400, "Korisnik ne moze biti dodeljen samom sebi");
       }
 
       const managerUser = await tx.query.user.findFirst({
@@ -115,7 +115,7 @@ export async function assignUserToManager(input: AssignUserToManagerInput) {
       });
 
       if (!managerUser || managerUser.role !== "manager" || !managerUser.isActive) {
-        throw new ServiceError(400, "Target manager is invalid or inactive");
+        throw new ServiceError(400, "Ciljni menadzer je neispravan ili neaktivan");
       }
     }
 
@@ -156,7 +156,7 @@ export async function removeManagerRole(input: RemoveManagerRoleInput) {
     });
 
     if (!adminUser || !isAdmin(adminUser.role) || !adminUser.isActive) {
-      throw new ServiceError(403, "Forbidden");
+      throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
     }
 
     const managerUser = await tx.query.user.findFirst({
@@ -165,11 +165,11 @@ export async function removeManagerRole(input: RemoveManagerRoleInput) {
     });
 
     if (!managerUser) {
-      throw new ServiceError(404, "User not found");
+      throw new ServiceError(404, "Korisnik nije pronadjen");
     }
 
     if (managerUser.role !== "manager") {
-      throw new ServiceError(400, "Target user is not a manager");
+      throw new ServiceError(400, "Ciljni korisnik nije menadzer");
     }
 
     const deletedReminders = await tx
@@ -259,7 +259,7 @@ export async function createManagerTask(input: CreateManagerTaskInput) {
 
   const isManaged = await isManagerOfUser(input.managerId, input.targetUserId);
   if (!isManaged) {
-    throw new ServiceError(403, "Manager can only create tasks for own team");
+    throw new ServiceError(403, "Menadzer moze da kreira zadatke samo za svoj tim");
   }
 
   const list = await db.query.todoLists.findFirst({
@@ -268,7 +268,7 @@ export async function createManagerTask(input: CreateManagerTaskInput) {
   });
 
   if (!list) {
-    throw new ServiceError(400, "List does not exist for selected user");
+    throw new ServiceError(400, "Lista ne postoji za izabranog korisnika");
   }
 
   if (input.categoryId) {
@@ -281,7 +281,7 @@ export async function createManagerTask(input: CreateManagerTaskInput) {
     });
 
     if (!category) {
-      throw new ServiceError(400, "Category does not exist for selected user");
+      throw new ServiceError(400, "Kategorija ne postoji za izabranog korisnika");
     }
   }
 
@@ -316,16 +316,16 @@ export async function updateTaskStatus(input: UpdateTaskStatusInput) {
   });
 
   if (!existingTask) {
-    throw new ServiceError(404, "Task not found");
+    throw new ServiceError(404, "Zadatak nije pronadjen");
   }
 
   const canAccess = await canActorAccessUser(input.actor, existingTask.userId);
   if (!canAccess) {
-    throw new ServiceError(403, "Forbidden");
+    throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
   }
 
   if (input.actor.role === "user" && input.actor.id !== existingTask.userId) {
-    throw new ServiceError(403, "Forbidden");
+    throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
   }
 
   const [updatedTask] = await db
@@ -343,7 +343,7 @@ export async function updateTaskStatus(input: UpdateTaskStatusInput) {
     .returning();
 
   if (!updatedTask) {
-    throw new ServiceError(404, "Task not found");
+    throw new ServiceError(404, "Zadatak nije pronadjen");
   }
 
   return updatedTask;
@@ -360,21 +360,21 @@ export async function deleteTask(input: DeleteTaskInput) {
   });
 
   if (!existingTask) {
-    throw new ServiceError(404, "Task not found");
+    throw new ServiceError(404, "Zadatak nije pronadjen");
   }
 
   const canAccess = await canActorAccessUser(input.actor, existingTask.userId);
   if (!canAccess) {
-    throw new ServiceError(403, "Forbidden");
+    throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
   }
 
   if (input.actor.role === "user") {
     if (input.actor.id !== existingTask.userId) {
-      throw new ServiceError(403, "Forbidden");
+      throw new ServiceError(403, "Nemate dozvolu za ovu akciju");
     }
 
     if (existingTask.createdByUserId !== input.actor.id) {
-      throw new ServiceError(403, "User cannot delete manager-created task");
+      throw new ServiceError(403, "Korisnik ne moze da obrise zadatak koji je kreirao menadzer");
     }
   }
 
@@ -384,7 +384,7 @@ export async function deleteTask(input: DeleteTaskInput) {
     .returning({ id: tasks.id });
 
   if (!deletedTask) {
-    throw new ServiceError(404, "Task not found");
+    throw new ServiceError(404, "Zadatak nije pronadjen");
   }
 
   return deletedTask;

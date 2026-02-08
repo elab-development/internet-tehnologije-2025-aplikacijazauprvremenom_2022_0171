@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+﻿import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
   const parsedQuery = listEventsSchema.safeParse(search);
   if (!parsedQuery.success) {
-    return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
+    return jsonError("Neispravni\ parametri\ upita", 400, parsedQuery.error.flatten());
   }
 
   const targetUserGuard = await resolveTargetUserId(
@@ -133,12 +133,12 @@ export async function POST(request: NextRequest) {
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Neispravan\ JSON\ payload", 400);
   }
 
   const parsedBody = createEventSchema.safeParse(body);
   if (!parsedBody.success) {
-    return jsonError("Validation failed", 400, parsedBody.error.flatten());
+    return jsonError("Validacija nije prosla", 400, parsedBody.error.flatten());
   }
 
   const input = parsedBody.data;
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for selected user", 400);
+      return jsonError("Zadatak ne postoji za izabranog korisnika", 400);
     }
   }
 
@@ -175,3 +175,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ data: createdEvent }, { status: 201 });
 }
+
+

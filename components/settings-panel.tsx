@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SectionLoader } from "@/components/ui/section-loader";
 
 type ThemePreference = "system" | "light" | "dark";
@@ -170,17 +171,17 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+    <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
       <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300 hover:-translate-y-0.5">
         <CardHeader>
           <CardTitle>{copy.profileTitle}</CardTitle>
           <CardDescription>{copy.profileDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pb-5">
           {profile ? (
-            <form onSubmit={saveProfile} className="space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-              <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.name}</span>
+            <form onSubmit={saveProfile} className="space-y-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+              <label className="grid gap-1 text-xs">
+                <span className="text-muted-foreground">{copy.name}</span>
                 <Input
                   value={profile.name}
                   onChange={(event) =>
@@ -188,8 +189,8 @@ export function SettingsPanel() {
                   }
                 />
               </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.email}</span>
+              <label className="grid gap-1 text-xs">
+                <span className="text-muted-foreground">{copy.email}</span>
                 <Input
                   type="email"
                   value={profile.email}
@@ -225,45 +226,58 @@ export function SettingsPanel() {
           <CardTitle>{copy.appearanceTitle}</CardTitle>
           <CardDescription>{copy.appearanceDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pb-5">
           {preferences ? (
             <form
               onSubmit={savePreferences}
-              className="space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
+              className="space-y-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
             >
-              <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.theme}</span>
-                <select
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
+              <label className="grid gap-1 text-xs">
+                <span className="text-muted-foreground">{copy.theme}</span>
+                <Select
                   value={preferences.theme}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     setPreferences((current) =>
-                      current ? { ...current, theme: event.target.value as ThemePreference } : current,
+                      current ? { ...current, theme: (value as ThemePreference) ?? current.theme } : current,
                     )
                   }
                 >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="System" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="system">System</SelectItem>
+                    <SelectItem value="light">Light</SelectItem>
+                    <SelectItem value="dark">Dark</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.density}</span>
-                <select
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
+              <label className="grid gap-1 text-xs">
+                <span className="text-muted-foreground">{copy.density}</span>
+                <Select
                   value={preferences.layoutDensity}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     setPreferences((current) =>
-                      current ? { ...current, layoutDensity: event.target.value as DensityPreference } : current,
+                      current
+                        ? {
+                            ...current,
+                            layoutDensity: (value as DensityPreference) ?? current.layoutDensity,
+                          }
+                        : current,
                     )
                   }
                 >
-                  <option value="comfortable">Comfortable</option>
-                  <option value="compact">Compact</option>
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Comfortable" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="comfortable">Comfortable</SelectItem>
+                    <SelectItem value="compact">Compact</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.timezone}</span>
+              <label className="grid gap-1 text-xs">
+                <span className="text-muted-foreground">{copy.timezone}</span>
                 <Input
                   value={preferences.timezone}
                   onChange={(event) =>

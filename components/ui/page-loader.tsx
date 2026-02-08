@@ -7,8 +7,8 @@ type PageLoaderProps = {
 };
 
 export function PageLoader({
-  title = "Loading workspace",
-  description = "Preparing modules and synchronizing your data...",
+  title = "Ucitavanje radnog prostora",
+  description = "Priprema modula i sinhronizacija podataka...",
 }: PageLoaderProps) {
   return (
     <main className="min-h-svh">

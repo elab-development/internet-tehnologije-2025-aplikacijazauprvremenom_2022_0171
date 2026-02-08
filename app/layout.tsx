@@ -14,7 +14,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "Time Manager",
-  description: "Personal planning hub for tasks, calendar, notes, and reminders.",
+  description: "Licni centar za planiranje zadataka, kalendara, beleski i podsetnika.",
 };
 
 export default async function RootLayout({
