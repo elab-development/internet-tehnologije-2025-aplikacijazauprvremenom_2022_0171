@@ -14,50 +14,29 @@ import { LogoutButton } from "@/components/logout-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
-import { tasks, todoLists, user, userPreferences } from "@/db/schema";
+import { tasks, todoLists, user } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { normalizeLanguage } from "@/lib/i18n";
 import { isAdmin } from "@/lib/roles";
 
 const copy = {
-  sr: {
-    dashboard: "Time Manager Dashboard",
-    welcome: "Dobrodosao, {name}. Uloga:",
-    lists: "To-do liste",
-    openTasks: "Otvoreni zadaci",
-    dueToday: "Rok danas",
-    tasksAndLists: "Zadaci i liste",
-    tasksAndListsDesc: "Kreiranje lista, zadataka, statusa, prioriteta i rokova.",
-    openWorkspace: "Otvori workspace",
-    calendarPlanner: "Kalendar i planer",
-    calendarPlannerDesc: "Dnevni, nedeljni i mesecni prikaz uz direktno dodavanje obaveza.",
-    openCalendar: "Otvori kalendar",
-    notesReminders: "Beleske i podsetnici",
-    notesRemindersDesc: "Tekstualne beleske, kategorije, pretraga i notifikacije za obaveze.",
-    openModule: "Otvori modul",
-    adminZone: "Admin zona",
-    adminZoneDesc: "Pregled korisnika, izmena prava pristupa i administracija naloga.",
-    openAdmin: "Otvori admin panel",
-  },
-  en: {
-    dashboard: "Time Manager Dashboard",
-    welcome: "Welcome, {name}. Role:",
-    lists: "To-do lists",
-    openTasks: "Open tasks",
-    dueToday: "Due today",
-    tasksAndLists: "Tasks and lists",
-    tasksAndListsDesc: "Create lists, tasks, statuses, priorities, and deadlines.",
-    openWorkspace: "Open workspace",
-    calendarPlanner: "Calendar and planner",
-    calendarPlannerDesc: "Daily, weekly, and monthly view with direct event creation.",
-    openCalendar: "Open calendar",
-    notesReminders: "Notes and reminders",
-    notesRemindersDesc: "Text notes, categories, search, and notifications for obligations.",
-    openModule: "Open module",
-    adminZone: "Admin zone",
-    adminZoneDesc: "Users overview, permission updates, and account administration.",
-    openAdmin: "Open admin panel",
-  },
+  dashboard: "Time Manager Dashboard",
+  welcome: "Dobrodosao, {name}. Uloga:",
+  lists: "To-do liste",
+  openTasks: "Otvoreni zadaci",
+  dueToday: "Rok danas",
+  tasksAndLists: "Zadaci i liste",
+  tasksAndListsDesc: "Kreiranje lista, zadataka, statusa, prioriteta i rokova.",
+  openWorkspace: "Otvori workspace",
+  calendarPlanner: "Kalendar i planer",
+  calendarPlannerDesc: "Dnevni, nedeljni i mesecni prikaz uz direktno dodavanje obaveza.",
+  openCalendar: "Otvori kalendar",
+  notesReminders: "Beleske i podsetnici",
+  notesRemindersDesc: "Tekstualne beleske, kategorije, pretraga i notifikacije za obaveze.",
+  openNotes: "Otvori beleske",
+  openReminders: "Otvori podsetnike",
+  adminZone: "Admin zona",
+  adminZoneDesc: "Pregled korisnika, izmena prava pristupa i administracija naloga.",
+  openAdmin: "Otvori admin panel",
 } as const;
 
 export default async function HomePage() {
@@ -74,7 +53,7 @@ export default async function HomePage() {
     columns: { role: true },
   });
 
-  const [userTasks, userLists, preferences] = await Promise.all([
+  const [userTasks, userLists] = await Promise.all([
     db
       .select({
         id: tasks.id,
@@ -84,14 +63,9 @@ export default async function HomePage() {
       .from(tasks)
       .where(eq(tasks.userId, session.user.id)),
     db.select({ id: todoLists.id }).from(todoLists).where(eq(todoLists.userId, session.user.id)),
-    db.query.userPreferences.findFirst({
-      where: eq(userPreferences.userId, session.user.id),
-      columns: { language: true },
-    }),
   ]);
 
-  const language = normalizeLanguage(preferences?.language);
-  const text = copy[language];
+  const text = copy;
 
   const now = new Date();
   const pendingTasks = userTasks.filter((task) => task.status !== "done").length;
@@ -119,7 +93,7 @@ export default async function HomePage() {
             <span className="font-medium">{currentUser?.role ?? "user"}</span>.
           </CardDescription>
           <CardAction className="hidden md:block">
-            <LogoutButton variant="secondary" language={language} />
+            <LogoutButton variant="secondary" />
           </CardAction>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
@@ -163,7 +137,7 @@ export default async function HomePage() {
             <CardDescription>{text.calendarPlannerDesc}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/tasks">
+            <Link href="/tasks?tab=calendar">
               <Button variant="outline">{text.openCalendar}</Button>
             </Link>
           </CardContent>
@@ -178,14 +152,20 @@ export default async function HomePage() {
             <CardDescription>{text.notesRemindersDesc}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Link href="/tasks">
+            <Link href="/tasks?tab=notes">
+              <Button variant="outline">
+                <RiFileTextLine data-icon="inline-start" />
+                {text.openNotes}
+              </Button>
+            </Link>
+            <Link href="/tasks?tab=reminders">
               <Button variant="outline">
                 <RiNotification2Line data-icon="inline-start" />
-                {text.openModule}
+                {text.openReminders}
               </Button>
             </Link>
             <div className="md:hidden">
-              <LogoutButton variant="secondary" language={language} />
+              <LogoutButton variant="secondary" />
             </div>
           </CardContent>
         </Card>

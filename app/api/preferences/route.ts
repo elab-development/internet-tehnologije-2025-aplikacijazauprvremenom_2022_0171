@@ -6,13 +6,11 @@ import { userPreferences } from "@/db/schema";
 import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
 
 const themeValues = ["system", "light", "dark"] as const;
-const languageValues = ["sr", "en"] as const;
 const densityValues = ["compact", "comfortable"] as const;
 
 const updatePreferencesSchema = z
   .object({
     theme: z.enum(themeValues).optional(),
-    language: z.enum(languageValues).optional(),
     layoutDensity: z.enum(densityValues).optional(),
     timezone: z.string().trim().min(1).max(120).optional(),
   })
@@ -25,7 +23,19 @@ async function getOrCreatePreferences(userId: string) {
     where: eq(userPreferences.userId, userId),
   });
 
-  if (existing) return existing;
+  if (existing) {
+    if (existing.language === "sr") {
+      return existing;
+    }
+
+    const [normalized] = await db
+      .update(userPreferences)
+      .set({ language: "sr" })
+      .where(eq(userPreferences.userId, userId))
+      .returning();
+
+    return normalized ?? existing;
+  }
 
   const [created] = await db
     .insert(userPreferences)
@@ -43,7 +53,7 @@ export async function GET(request: NextRequest) {
 
   const preferences = await getOrCreatePreferences(userGuard.userId);
   const response = NextResponse.json({ data: preferences }, { status: 200 });
-  response.cookies.set("tm-language", preferences.language, {
+  response.cookies.set("tm-language", "sr", {
     httpOnly: false,
     sameSite: "lax",
     path: "/",
@@ -89,7 +99,7 @@ export async function PATCH(request: NextRequest) {
     .update(userPreferences)
     .set({
       theme: input.theme,
-      language: input.language,
+      language: "sr",
       layoutDensity: input.layoutDensity,
       timezone: input.timezone,
     })
@@ -101,7 +111,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const response = NextResponse.json({ data: updatedPreferences }, { status: 200 });
-  response.cookies.set("tm-language", updatedPreferences.language, {
+  response.cookies.set("tm-language", "sr", {
     httpOnly: false,
     sameSite: "lax",
     path: "/",

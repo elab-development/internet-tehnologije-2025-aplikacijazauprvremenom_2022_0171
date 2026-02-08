@@ -1,10 +1,10 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { user } from "@/db/schema";
-import { auth } from "@/lib/auth";
-import { isAdmin, userRoleValues } from "@/lib/roles";
+import { requireAdmin } from "@/lib/api-utils";
+import { userRoleValues } from "@/lib/roles";
 
 const listUsersQuerySchema = z.object({
   role: z.enum(userRoleValues).optional(),
@@ -14,31 +14,8 @@ function jsonError(message: string, status: number, details?: unknown) {
   return NextResponse.json({ error: { message, details } }, { status });
 }
 
-async function getSessionUserId(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user?.id ?? null;
-}
-
-async function assertAdmin(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return { ok: false as const, response: jsonError("Unauthorized", 401) };
-  }
-
-  const currentUser = await db.query.user.findFirst({
-    where: eq(user.id, userId),
-    columns: { role: true },
-  });
-
-  if (!isAdmin(currentUser?.role)) {
-    return { ok: false as const, response: jsonError("Forbidden", 403) };
-  }
-
-  return { ok: true as const };
-}
-
 export async function GET(request: NextRequest) {
-  const adminGuard = await assertAdmin(request);
+  const adminGuard = await requireAdmin(request);
   if (!adminGuard.ok) {
     return adminGuard.response;
   }
@@ -55,18 +32,54 @@ export async function GET(request: NextRequest) {
     name: user.name,
     email: user.email,
     role: user.role,
+    managerId: user.managerId,
     isActive: user.isActive,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
 
-  const users = parsedQuery.data.role
-    ? await db
+  const usersPromise = parsedQuery.data.role
+    ? db
         .select(selectedColumns)
         .from(user)
         .where(eq(user.role, parsedQuery.data.role))
         .orderBy(desc(user.createdAt))
-    : await db.select(selectedColumns).from(user).orderBy(desc(user.createdAt));
+    : db.select(selectedColumns).from(user).orderBy(desc(user.createdAt));
 
-  return NextResponse.json({ data: users }, { status: 200 });
+  const [users, managers, teamCounts] = await Promise.all([
+    usersPromise,
+    db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      })
+      .from(user)
+      .where(eq(user.role, "manager")),
+    db
+      .select({
+        managerId: user.managerId,
+        teamSize: sql<number>`count(*)::int`,
+      })
+      .from(user)
+      .where(and(eq(user.role, "user"), isNotNull(user.managerId)))
+      .groupBy(user.managerId),
+  ]);
+
+  const managerMap = new Map(managers.map((entry) => [entry.id, entry]));
+  const teamSizeMap = new Map(
+    teamCounts
+      .filter((entry): entry is { managerId: string; teamSize: number } =>
+        Boolean(entry.managerId),
+      )
+      .map((entry) => [entry.managerId, entry.teamSize]),
+  );
+
+  const normalizedUsers = users.map((entry) => ({
+    ...entry,
+    managerName: entry.managerId ? managerMap.get(entry.managerId)?.name ?? null : null,
+    teamSize: teamSizeMap.get(entry.id) ?? 0,
+  }));
+
+  return NextResponse.json({ data: normalizedUsers }, { status: 200 });
 }

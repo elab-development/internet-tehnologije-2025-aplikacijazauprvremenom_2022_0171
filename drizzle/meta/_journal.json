@@ -29,6 +29,13 @@
       "when": 1770400369292,
       "tag": "0003_constraints_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770519000000,
+      "tag": "0004_manager_rbac",
+      "breakpoints": true
     }
   ]
 }

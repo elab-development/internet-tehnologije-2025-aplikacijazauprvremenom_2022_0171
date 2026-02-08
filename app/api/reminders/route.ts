@@ -3,12 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { calendarEvents, reminders, tasks } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  jsonError,
+  parseJsonBody,
+  requireActor,
+  resolveTargetUserId,
+} from "@/lib/api-utils";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
 const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
 
 const listRemindersSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   taskId: z.string().uuid().optional(),
   eventId: z.string().uuid().optional(),
   isSent: z.enum(["true", "false"]).optional(),
@@ -20,6 +26,7 @@ const listRemindersSchema = z.object({
 
 const createReminderSchema = z
   .object({
+    userId: z.string().trim().min(1).optional(),
     taskId: z.string().uuid().nullable().optional(),
     eventId: z.string().uuid().nullable().optional(),
     message: z.string().trim().min(1).max(500),
@@ -31,9 +38,9 @@ const createReminderSchema = z
   });
 
 export async function GET(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
@@ -42,14 +49,24 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
   }
 
+  const targetUserGuard = await resolveTargetUserId(
+    actorGuard.actor,
+    parsedQuery.data.userId,
+  );
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
   const page = parsedQuery.data.page ?? 1;
   const limit = parsedQuery.data.limit ?? QUERY_LIMITS.reminders.default;
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(reminders.userId, userGuard.userId)];
+  const conditions = [eq(reminders.userId, targetUserGuard.targetUserId)];
   if (parsedQuery.data.taskId) conditions.push(eq(reminders.taskId, parsedQuery.data.taskId));
   if (parsedQuery.data.eventId) conditions.push(eq(reminders.eventId, parsedQuery.data.eventId));
-  if (parsedQuery.data.isSent) conditions.push(eq(reminders.isSent, parsedQuery.data.isSent === "true"));
+  if (parsedQuery.data.isSent) {
+    conditions.push(eq(reminders.isSent, parsedQuery.data.isSent === "true"));
+  }
   if (parsedQuery.data.remindFrom) {
     conditions.push(gte(reminders.remindAt, new Date(parsedQuery.data.remindFrom)));
   }
@@ -64,6 +81,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: reminders.id,
         userId: reminders.userId,
+        createdByUserId: reminders.createdByUserId,
         taskId: reminders.taskId,
         eventId: reminders.eventId,
         message: reminders.message,
@@ -100,9 +118,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const body = await parseJsonBody(request);
@@ -116,31 +134,41 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
+  const targetUserId = targetUserGuard.targetUserId;
 
   if (input.taskId) {
     const linkedTask = await db.query.tasks.findFirst({
-      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, userGuard.userId)),
+      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, targetUserId)),
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for authenticated user", 400);
+      return jsonError("Task does not exist for selected user", 400);
     }
   }
 
   if (input.eventId) {
     const linkedEvent = await db.query.calendarEvents.findFirst({
-      where: and(eq(calendarEvents.id, input.eventId), eq(calendarEvents.userId, userGuard.userId)),
+      where: and(
+        eq(calendarEvents.id, input.eventId),
+        eq(calendarEvents.userId, targetUserId),
+      ),
       columns: { id: true },
     });
     if (!linkedEvent) {
-      return jsonError("Event does not exist for authenticated user", 400);
+      return jsonError("Event does not exist for selected user", 400);
     }
   }
 
   const [createdReminder] = await db
     .insert(reminders)
     .values({
-      userId: userGuard.userId,
+      userId: targetUserId,
+      createdByUserId: actorGuard.actor.id,
       taskId: input.taskId ?? null,
       eventId: input.eventId ?? null,
       message: input.message,

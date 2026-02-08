@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import { type ReactNode } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { normalizeLanguage } from "@/lib/i18n";
 import "./globals.css";
 
 const raleway = Raleway({ subsets: ["latin"], variable: "--font-sans" });
@@ -24,14 +23,13 @@ export default async function RootLayout({
   children: ReactNode;
 }>) {
   const cookieStore = await cookies();
-  const language = normalizeLanguage(cookieStore.get("tm-language")?.value);
   const density = cookieStore.get("tm-density")?.value === "compact" ? "compact" : "comfortable";
   const themeCookie = cookieStore.get("tm-theme")?.value;
   const themeClass = themeCookie === "dark" ? "dark" : "";
 
   return (
     <html
-      lang={language}
+      lang="sr"
       className={`${raleway.variable} ${spaceGrotesk.variable} ${themeClass}`.trim()}
       suppressHydrationWarning
     >

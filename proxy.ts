@@ -11,6 +11,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  if (!session.user.isActive) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   if (request.nextUrl.pathname.startsWith("/admin") && !isAdmin(session.user.role)) {
     return NextResponse.redirect(new URL("/", request.url));
   }

@@ -3,21 +3,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  jsonError,
+  parseJsonBody,
+  requireActor,
+  resolveTargetUserId,
+} from "@/lib/api-utils";
 
 const listCategoriesSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
 });
 
 const createCategorySchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(120),
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 
 export async function GET(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
@@ -26,16 +33,26 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
   }
 
+  const targetUserGuard = await resolveTargetUserId(
+    actorGuard.actor,
+    parsedQuery.data.userId,
+  );
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
   const whereCondition = parsedQuery.data.q
     ? and(
-        eq(categories.userId, userGuard.userId),
+        eq(categories.userId, targetUserGuard.targetUserId),
         ilike(categories.name, `%${parsedQuery.data.q}%`),
       )
-    : eq(categories.userId, userGuard.userId);
+    : eq(categories.userId, targetUserGuard.targetUserId);
 
   const items = await db
     .select({
       id: categories.id,
+      userId: categories.userId,
+      createdByUserId: categories.createdByUserId,
       name: categories.name,
       color: categories.color,
       createdAt: categories.createdAt,
@@ -49,9 +66,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const body = await parseJsonBody(request);
@@ -65,11 +82,16 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
 
   const [createdCategory] = await db
     .insert(categories)
     .values({
-      userId: userGuard.userId,
+      userId: targetUserGuard.targetUserId,
+      createdByUserId: actorGuard.actor.id,
       name: input.name,
       color: input.color ?? "#4f8cff",
     })
@@ -78,6 +100,8 @@ export async function POST(request: NextRequest) {
     })
     .returning({
       id: categories.id,
+      userId: categories.userId,
+      createdByUserId: categories.createdByUserId,
       name: categories.name,
       color: categories.color,
       createdAt: categories.createdAt,

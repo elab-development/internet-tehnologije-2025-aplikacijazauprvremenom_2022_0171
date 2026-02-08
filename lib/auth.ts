@@ -25,6 +25,8 @@ export const auth = betterAuth({
         where: (userTable, { eq }) => eq(userTable.id, sessionUser.id),
         columns: {
           role: true,
+          isActive: true,
+          managerId: true,
         },
       });
 
@@ -32,6 +34,8 @@ export const auth = betterAuth({
         user: {
           ...sessionUser,
           role: dbUser?.role ?? "user",
+          isActive: dbUser?.isActive ?? false,
+          managerId: dbUser?.managerId ?? null,
         },
         session,
       };

@@ -1,10 +1,15 @@
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { adminAuditLogs, user } from "@/db/schema";
-import { auth } from "@/lib/auth";
-import { isAdmin, userRoleValues } from "@/lib/roles";
+import { adminAuditLogs, session, user } from "@/db/schema";
+import { jsonError, parseJsonBody, requireAdmin } from "@/lib/api-utils";
+import {
+  assignUserToManager,
+  removeManagerRole,
+  ServiceError,
+} from "@/lib/manager-service";
+import { userRoleValues } from "@/lib/roles";
 
 const userIdSchema = z.string().trim().min(1);
 
@@ -12,51 +17,25 @@ const updateUserSchema = z
   .object({
     role: z.enum(userRoleValues).optional(),
     isActive: z.boolean().optional(),
+    managerId: z.string().trim().min(1).nullable().optional(),
   })
   .refine((input) => Object.keys(input).length > 0, {
     message: "At least one field is required for update",
   });
 
-function jsonError(message: string, status: number, details?: unknown) {
-  return NextResponse.json({ error: { message, details } }, { status });
-}
-
-async function getSessionUserId(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user?.id ?? null;
-}
-
-async function parseJsonBody(request: NextRequest) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-async function assertAdmin(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return { ok: false as const, response: jsonError("Unauthorized", 401) };
+function toApiError(error: unknown) {
+  if (error instanceof ServiceError) {
+    return jsonError(error.message, error.status, error.details);
   }
 
-  const currentUser = await db.query.user.findFirst({
-    where: eq(user.id, userId),
-    columns: { role: true },
-  });
-
-  if (!isAdmin(currentUser?.role)) {
-    return { ok: false as const, response: jsonError("Forbidden", 403) };
-  }
-
-  return { ok: true as const, adminId: userId };
+  return jsonError("Internal server error", 500);
 }
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const adminGuard = await assertAdmin(request);
+  const adminGuard = await requireAdmin(request);
   if (!adminGuard.ok) {
     return adminGuard.response;
   }
@@ -77,8 +56,8 @@ export async function PATCH(
     return jsonError("Validation failed", 400, parsedBody.error.flatten());
   }
 
-  const targetUserId = parsedId.data;
   const input = parsedBody.data;
+  const targetUserId = parsedId.data;
 
   if (targetUserId === adminGuard.adminId && input.role && input.role !== "admin") {
     return jsonError("Admin cannot remove own admin role", 400);
@@ -94,6 +73,7 @@ export async function PATCH(
       id: true,
       role: true,
       isActive: true,
+      managerId: true,
     },
   });
 
@@ -101,52 +81,144 @@ export async function PATCH(
     return jsonError("User not found", 404);
   }
 
-  const updateValues: Partial<typeof user.$inferInsert> = {};
-  if (input.role !== undefined) updateValues.role = input.role;
-  if (input.isActive !== undefined) updateValues.isActive = input.isActive;
+  let currentRole = targetUser.role;
+  let currentIsActive = targetUser.isActive;
+  let currentManagerId = targetUser.managerId;
 
-  const [updatedUser] = await db
-    .update(user)
-    .set(updateValues)
-    .where(eq(user.id, targetUserId))
-    .returning({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
+  const shouldRemoveManagerRole =
+    targetUser.role === "manager" &&
+    input.role !== undefined &&
+    input.role !== "manager";
+
+  try {
+    if (shouldRemoveManagerRole) {
+      const nextRole = input.role;
+      if (!nextRole || nextRole === "manager") {
+        return jsonError("Invalid role transition", 400);
+      }
+
+      const result = await removeManagerRole({
+        adminId: adminGuard.adminId,
+        managerUserId: targetUserId,
+        nextRole,
+      });
+
+      if (!result.user) {
+        return jsonError("User not found", 404);
+      }
+
+      currentRole = result.user.role;
+      currentIsActive = result.user.isActive;
+      currentManagerId = result.user.managerId;
+    }
+
+    const updateValues: Partial<typeof user.$inferInsert> = {};
+
+    if (input.role !== undefined && !shouldRemoveManagerRole) {
+      updateValues.role = input.role;
+      currentRole = input.role;
+      if (input.role !== "user") {
+        updateValues.managerId = null;
+        currentManagerId = null;
+      }
+    }
+
+    if (input.isActive !== undefined) {
+      updateValues.isActive = input.isActive;
+      currentIsActive = input.isActive;
+    }
+
+    const hasDirectUpdate = Object.keys(updateValues).length > 0;
+    if (hasDirectUpdate) {
+      await db.update(user).set(updateValues).where(eq(user.id, targetUserId));
+    }
+
+    if (input.managerId !== undefined) {
+      if (currentRole !== "user") {
+        return jsonError("Only USER can be assigned to manager", 400);
+      }
+
+      const assignedUser = await assignUserToManager({
+        adminId: adminGuard.adminId,
+        userId: targetUserId,
+        managerId: input.managerId,
+      });
+
+      currentManagerId = assignedUser.managerId;
+    }
+
+    if (hasDirectUpdate) {
+      await db.delete(session).where(eq(session.userId, targetUserId));
+    }
+
+    const [updatedUser] = await db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        managerId: user.managerId,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      })
+      .from(user)
+      .where(eq(user.id, targetUserId))
+      .limit(1);
+
+    if (!updatedUser) {
+      return jsonError("User not found", 404);
+    }
+
+    const [managerUser, teamSizeRow] = await Promise.all([
+      updatedUser.managerId
+        ? db.query.user.findFirst({
+            where: eq(user.id, updatedUser.managerId),
+            columns: { name: true },
+          })
+        : Promise.resolve(null),
+      db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(user)
+        .where(and(eq(user.role, "user"), eq(user.managerId, updatedUser.id)))
+        .then((rows) => rows[0]?.value ?? 0),
+    ]);
+
+    const normalizedUser = {
+      ...updatedUser,
+      managerName: managerUser?.name ?? null,
+      teamSize: teamSizeRow,
+    };
+
+    await db.insert(adminAuditLogs).values({
+      adminId: adminGuard.adminId,
+      targetUserId,
+      action: "update_user",
+      details: JSON.stringify({
+        previous: {
+          role: targetUser.role,
+          isActive: targetUser.isActive,
+          managerId: targetUser.managerId,
+        },
+        next: {
+          role: currentRole,
+          isActive: currentIsActive,
+          managerId: currentManagerId,
+        },
+      }),
     });
 
-  if (!updatedUser) {
-    return jsonError("User not found", 404);
+    return NextResponse.json({ data: normalizedUser }, { status: 200 });
+  } catch (error) {
+    return toApiError(error);
   }
-
-  await db.insert(adminAuditLogs).values({
-    adminId: adminGuard.adminId,
-    targetUserId,
-    action: "update_user",
-    details: JSON.stringify({
-      previous: {
-        role: targetUser.role,
-        isActive: targetUser.isActive,
-      },
-      next: {
-        role: updatedUser.role,
-        isActive: updatedUser.isActive,
-      },
-    }),
-  });
-
-  return NextResponse.json({ data: updatedUser }, { status: 200 });
 }
 
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const adminGuard = await assertAdmin(request);
+  const adminGuard = await requireAdmin(request);
   if (!adminGuard.ok) {
     return adminGuard.response;
   }
@@ -170,6 +242,7 @@ export async function DELETE(
       name: user.name,
       email: user.email,
       role: user.role,
+      managerId: user.managerId,
       isActive: user.isActive,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

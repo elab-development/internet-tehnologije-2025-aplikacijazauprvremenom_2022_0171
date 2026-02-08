@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { calendarEvents, tasks } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  canActorAccessUser,
+  isLockedForUser,
+  jsonError,
+  parseJsonBody,
+  requireActor,
+} from "@/lib/api-utils";
 
 const eventIdSchema = z.string().uuid();
 
@@ -36,9 +42,9 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -48,11 +54,28 @@ export async function PATCH(
   }
 
   const existingEvent = await db.query.calendarEvents.findFirst({
-    where: and(eq(calendarEvents.id, parsedId.data), eq(calendarEvents.userId, userGuard.userId)),
-    columns: { id: true, startsAt: true, endsAt: true },
+    where: eq(calendarEvents.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+      startsAt: true,
+      endsAt: true,
+    },
   });
   if (!existingEvent) {
     return jsonError("Event not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingEvent.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
+  if (
+    isLockedForUser(actorGuard.actor, existingEvent.userId, existingEvent.createdByUserId)
+  ) {
+    return jsonError("User cannot modify manager-created event", 403);
   }
 
   const body = await parseJsonBody(request);
@@ -69,11 +92,11 @@ export async function PATCH(
 
   if (input.taskId) {
     const linkedTask = await db.query.tasks.findFirst({
-      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, userGuard.userId)),
+      where: and(eq(tasks.id, input.taskId), eq(tasks.userId, existingEvent.userId)),
       columns: { id: true },
     });
     if (!linkedTask) {
-      return jsonError("Task does not exist for authenticated user", 400);
+      return jsonError("Task does not exist for event owner", 400);
     }
   }
 
@@ -93,7 +116,7 @@ export async function PATCH(
       endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
       location: input.location,
     })
-    .where(and(eq(calendarEvents.id, parsedId.data), eq(calendarEvents.userId, userGuard.userId)))
+    .where(eq(calendarEvents.id, parsedId.data))
     .returning();
 
   if (!updatedEvent) {
@@ -107,9 +130,9 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -118,9 +141,32 @@ export async function DELETE(
     return jsonError("Invalid event id", 400, parsedId.error.flatten());
   }
 
+  const existingEvent = await db.query.calendarEvents.findFirst({
+    where: eq(calendarEvents.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+      createdByUserId: true,
+    },
+  });
+  if (!existingEvent) {
+    return jsonError("Event not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingEvent.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
+  if (
+    isLockedForUser(actorGuard.actor, existingEvent.userId, existingEvent.createdByUserId)
+  ) {
+    return jsonError("User cannot delete manager-created event", 403);
+  }
+
   const [deletedEvent] = await db
     .delete(calendarEvents)
-    .where(and(eq(calendarEvents.id, parsedId.data), eq(calendarEvents.userId, userGuard.userId)))
+    .where(eq(calendarEvents.id, parsedId.data))
     .returning({ id: calendarEvents.id });
 
   if (!deletedEvent) {

@@ -1,12 +1,11 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { TasksPageClient } from "@/components/tasks-page-client";
 import { db } from "@/db";
-import { categories, todoLists, user, userPreferences } from "@/db/schema";
+import { categories, todoLists, user } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { normalizeLanguage } from "@/lib/i18n";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, isManager, isUserRole, type UserRole } from "@/lib/roles";
 
 export default async function TasksPage() {
   const session = await auth.api.getSession({
@@ -22,7 +21,10 @@ export default async function TasksPage() {
     columns: { role: true },
   });
 
-  const [lists, userCategories, preferences] = await Promise.all([
+  const actorRole: UserRole = isUserRole(currentUser?.role) ? currentUser.role : "user";
+  const isManagerActor = isManager(actorRole);
+
+  const [lists, userCategories, managerTeamMembers] = await Promise.all([
     db
       .select({
         id: todoLists.id,
@@ -41,22 +43,31 @@ export default async function TasksPage() {
       .from(categories)
       .where(eq(categories.userId, session.user.id))
       .orderBy(asc(categories.name)),
-    db.query.userPreferences.findFirst({
-      where: eq(userPreferences.userId, session.user.id),
-      columns: { language: true },
-    }),
+    isManagerActor
+      ? db
+          .select({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            isActive: user.isActive,
+          })
+          .from(user)
+          .where(and(eq(user.managerId, session.user.id), eq(user.role, "user")))
+          .orderBy(asc(user.name))
+      : Promise.resolve<Array<{ id: string; name: string; email: string; isActive: boolean }>>([]),
   ]);
 
   return (
     <TasksPageClient
       lists={lists}
       categories={userCategories}
-      canAccessAdmin={isAdmin(currentUser?.role)}
-      initialLanguage={normalizeLanguage(preferences?.language)}
+      managerTeamMembers={managerTeamMembers}
+      canAccessAdmin={isAdmin(actorRole)}
       sessionUser={{
         id: session.user.id,
         name: session.user.name,
         email: session.user.email,
+        role: actorRole,
       }}
     />
   );

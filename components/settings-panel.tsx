@@ -6,17 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { SectionLoader } from "@/components/ui/section-loader";
-import { type AppLanguage } from "@/lib/i18n";
 
 type ThemePreference = "system" | "light" | "dark";
-type LanguagePreference = "sr" | "en";
 type DensityPreference = "compact" | "comfortable";
 
 type UserPreferences = {
   id: string;
   userId: string;
   theme: ThemePreference;
-  language: LanguagePreference;
+  language: "sr";
   layoutDensity: DensityPreference;
   timezone: string;
 };
@@ -34,66 +32,31 @@ type ApiResponse<T> = {
   error?: { message?: string };
 };
 
-type SettingsPanelProps = {
-  language: AppLanguage;
-  onLanguageChange?: (language: AppLanguage) => void;
-};
-
 const settingsCopy = {
-  sr: {
-    profileTitle: "Profil korisnika",
-    profileDescription: "Izmena licnih podataka i pregled statusa naloga.",
-    name: "Ime",
-    email: "E-mail",
-    role: "Uloga",
-    status: "Status",
-    active: "Aktivan",
-    inactive: "Neaktivan",
-    saveProfile: "Sacuvaj profil",
-    appearanceTitle: "Izgled i preferencije",
-    appearanceDescription: "Tema, jezik, gustina prikaza i vremenska zona.",
-    theme: "Tema",
-    language: "Jezik",
-    density: "Gustina prikaza",
-    timezone: "Vremenska zona",
-    savePreferences: "Sacuvaj podesavanja",
-    loadingProfile: "Ucitavanje profila...",
-    loadingPreferences: "Ucitavanje podesavanja...",
-    requiredProfile: "Ime i e-mail su obavezni.",
-    profileSaved: "Profil je uspesno azuriran.",
-    preferencesSaved: "Podesavanja su uspesno sacuvana.",
-    loadError: "Greska pri ucitavanju podesavanja",
-    saveError: "Greska pri cuvanju podesavanja",
-    profileSaveError: "Neuspesno cuvanje profila",
-    preferencesSaveError: "Neuspesno cuvanje podesavanja",
-  },
-  en: {
-    profileTitle: "User Profile",
-    profileDescription: "Update personal data and review account status.",
-    name: "Name",
-    email: "Email",
-    role: "Role",
-    status: "Status",
-    active: "Active",
-    inactive: "Inactive",
-    saveProfile: "Save profile",
-    appearanceTitle: "Appearance and preferences",
-    appearanceDescription: "Theme, language, density, and timezone.",
-    theme: "Theme",
-    language: "Language",
-    density: "Layout density",
-    timezone: "Timezone",
-    savePreferences: "Save preferences",
-    loadingProfile: "Loading profile...",
-    loadingPreferences: "Loading preferences...",
-    requiredProfile: "Name and e-mail are required.",
-    profileSaved: "Profile updated successfully.",
-    preferencesSaved: "Preferences saved successfully.",
-    loadError: "Failed to load settings",
-    saveError: "Failed to save settings",
-    profileSaveError: "Failed to save profile",
-    preferencesSaveError: "Failed to save preferences",
-  },
+  profileTitle: "Profil korisnika",
+  profileDescription: "Izmena licnih podataka i pregled statusa naloga.",
+  name: "Ime",
+  email: "E-mail",
+  role: "Uloga",
+  status: "Status",
+  active: "Aktivan",
+  inactive: "Neaktivan",
+  saveProfile: "Sacuvaj profil",
+  appearanceTitle: "Izgled i preferencije",
+  appearanceDescription: "Tema, gustina prikaza i vremenska zona.",
+  theme: "Tema",
+  density: "Gustina prikaza",
+  timezone: "Vremenska zona",
+  savePreferences: "Sacuvaj podesavanja",
+  loadingProfile: "Ucitavanje profila...",
+  loadingPreferences: "Ucitavanje podesavanja...",
+  requiredProfile: "Ime i e-mail su obavezni.",
+  profileSaved: "Profil je uspesno azuriran.",
+  preferencesSaved: "Podesavanja su uspesno sacuvana.",
+  loadError: "Greska pri ucitavanju podesavanja",
+  saveError: "Greska pri cuvanju podesavanja",
+  profileSaveError: "Neuspesno cuvanje profila",
+  preferencesSaveError: "Neuspesno cuvanje podesavanja",
 } as const;
 
 function applyAppearance(preferences: UserPreferences | null) {
@@ -108,15 +71,15 @@ function applyAppearance(preferences: UserPreferences | null) {
       : preferences.theme;
 
   root.classList.toggle("dark", theme === "dark");
-  root.lang = preferences.language;
+  root.lang = "sr";
   document.body.dataset.density = preferences.layoutDensity;
 }
 
-export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps) {
+export function SettingsPanel() {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isSaving, setIsSaving] = useState<string | null>(null);
-  const copy = useMemo(() => settingsCopy[language], [language]);
+  const copy = useMemo(() => settingsCopy, []);
 
   useEffect(() => {
     void (async () => {
@@ -130,20 +93,19 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
         const profilePayload = (await profileResponse.json()) as ApiResponse<UserProfile>;
 
         if (!prefResponse.ok || !prefPayload.data) {
-          throw new Error(prefPayload.error?.message ?? settingsCopy.sr.loadError);
+          throw new Error(prefPayload.error?.message ?? settingsCopy.loadError);
         }
         if (!profileResponse.ok || !profilePayload.data) {
-          throw new Error(profilePayload.error?.message ?? settingsCopy.sr.loadError);
+          throw new Error(profilePayload.error?.message ?? settingsCopy.loadError);
         }
 
         setPreferences(prefPayload.data);
         setProfile(profilePayload.data);
-        onLanguageChange?.(prefPayload.data.language);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : settingsCopy.sr.loadError);
+        toast.error(error instanceof Error ? error.message : settingsCopy.loadError);
       }
     })();
-  }, [onLanguageChange]);
+  }, []);
 
   useEffect(() => {
     applyAppearance(preferences);
@@ -190,7 +152,6 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           theme: preferences.theme,
-          language: preferences.language,
           layoutDensity: preferences.layoutDensity,
           timezone: preferences.timezone,
         }),
@@ -200,7 +161,6 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
         throw new Error(payload.error?.message ?? copy.preferencesSaveError);
       }
       setPreferences(payload.data);
-      onLanguageChange?.(payload.data.language);
       toast.success(copy.preferencesSaved);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : copy.saveError);
@@ -211,14 +171,14 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-      <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
+      <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300 hover:-translate-y-0.5">
         <CardHeader>
           <CardTitle>{copy.profileTitle}</CardTitle>
           <CardDescription>{copy.profileDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           {profile ? (
-            <form onSubmit={saveProfile} className="space-y-3">
+            <form onSubmit={saveProfile} className="space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
               <label className="text-xs">
                 <span className="mb-1 block text-muted-foreground">{copy.name}</span>
                 <Input
@@ -246,7 +206,11 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
                   {copy.status}: {profile.isActive ? copy.active : copy.inactive}
                 </span>
               </div>
-              <Button type="submit" disabled={isSaving === "profile"}>
+              <Button
+                type="submit"
+                disabled={isSaving === "profile"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
+              >
                 {copy.saveProfile}
               </Button>
             </form>
@@ -256,18 +220,21 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
         </CardContent>
       </Card>
 
-      <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+      <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-500 hover:-translate-y-0.5">
         <CardHeader>
           <CardTitle>{copy.appearanceTitle}</CardTitle>
           <CardDescription>{copy.appearanceDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           {preferences ? (
-            <form onSubmit={savePreferences} className="space-y-3">
+            <form
+              onSubmit={savePreferences}
+              className="space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
+            >
               <label className="text-xs">
                 <span className="mb-1 block text-muted-foreground">{copy.theme}</span>
                 <select
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs"
+                  className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
                   value={preferences.theme}
                   onChange={(event) =>
                     setPreferences((current) =>
@@ -281,24 +248,9 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
                 </select>
               </label>
               <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">{copy.language}</span>
-                <select
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs"
-                  value={preferences.language}
-                  onChange={(event) => {
-                    const next = event.target.value as LanguagePreference;
-                    setPreferences((current) => (current ? { ...current, language: next } : current));
-                    onLanguageChange?.(next);
-                  }}
-                >
-                  <option value="sr">Srpski</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-              <label className="text-xs">
                 <span className="mb-1 block text-muted-foreground">{copy.density}</span>
                 <select
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs"
+                  className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
                   value={preferences.layoutDensity}
                   onChange={(event) =>
                     setPreferences((current) =>
@@ -319,7 +271,11 @@ export function SettingsPanel({ language, onLanguageChange }: SettingsPanelProps
                   }
                 />
               </label>
-              <Button type="submit" disabled={isSaving === "preferences"}>
+              <Button
+                type="submit"
+                disabled={isSaving === "preferences"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
+              >
                 {copy.savePreferences}
               </Button>
             </form>

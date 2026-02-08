@@ -5,41 +5,21 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
-import { type AppLanguage } from "@/lib/i18n";
-
-type Props = React.ComponentProps<typeof Button> & {
-  language?: AppLanguage;
-};
-
-const logoutCopy = {
-  sr: {
-    label: "Odjavi se",
-    success: "Uspesno odjavljen nalog.",
-    errorPrefix: "Neuspesna odjava:",
-  },
-  en: {
-    label: "Logout",
-    success: "Logged out successfully.",
-    errorPrefix: "Logout failed:",
-  },
-} as const;
-
-export function LogoutButton({ onClick, disabled, language = "sr", ...props }: Props) {
+export function LogoutButton({ onClick, disabled, ...props }: React.ComponentProps<typeof Button>) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
-  const copy = logoutCopy[language];
 
   async function handleLogout() {
     setIsPending(true);
     await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
-          toast.success(copy.success);
+          toast.success("Uspesno odjavljen nalog.");
           router.replace("/login");
           router.refresh();
         },
         onError: (error) => {
-          toast.error(`${copy.errorPrefix} ${error.error.message}`);
+          toast.error(`Neuspesna odjava: ${error.error.message}`);
         },
       },
     });
@@ -56,7 +36,7 @@ export function LogoutButton({ onClick, disabled, language = "sr", ...props }: P
         void handleLogout();
       }}
     >
-      {copy.label}
+      Odjavi se
     </Button>
   );
 }

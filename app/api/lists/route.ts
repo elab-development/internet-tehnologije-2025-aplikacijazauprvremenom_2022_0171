@@ -3,38 +3,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { todoLists } from "@/db/schema";
-import { auth } from "@/lib/auth";
+import {
+  jsonError,
+  parseJsonBody,
+  requireActor,
+  resolveTargetUserId,
+} from "@/lib/api-utils";
 
 const createListSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).max(255),
   description: z.string().trim().max(5000).nullable().optional(),
 });
 
 const listQuerySchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
 });
 
-function jsonError(message: string, status: number, details?: unknown) {
-  return NextResponse.json({ error: { message, details } }, { status });
-}
-
-async function getSessionUserId(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user?.id ?? null;
-}
-
-async function parseJsonBody(request: NextRequest) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return jsonError("Unauthorized", 401);
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
@@ -44,9 +34,20 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
   }
 
+  const targetUserGuard = await resolveTargetUserId(
+    actorGuard.actor,
+    parsedQuery.data.userId,
+  );
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
   const whereCondition = parsedQuery.data.q
-    ? and(eq(todoLists.userId, userId), ilike(todoLists.title, `%${parsedQuery.data.q}%`))
-    : eq(todoLists.userId, userId);
+    ? and(
+        eq(todoLists.userId, targetUserGuard.targetUserId),
+        ilike(todoLists.title, `%${parsedQuery.data.q}%`),
+      )
+    : eq(todoLists.userId, targetUserGuard.targetUserId);
 
   const lists = await db
     .select({
@@ -64,9 +65,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return jsonError("Unauthorized", 401);
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const body = await parseJsonBody(request);
@@ -80,11 +81,15 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
 
   const [createdList] = await db
     .insert(todoLists)
     .values({
-      userId,
+      userId: targetUserGuard.targetUserId,
       title: input.title,
       description: input.description ?? null,
     })

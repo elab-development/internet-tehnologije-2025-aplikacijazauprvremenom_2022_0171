@@ -33,6 +33,12 @@ type ApiResponse<T> = {
   error?: { message?: string };
 };
 
+type Props = {
+  targetUserId: string;
+  targetUserName: string;
+  canManageDispatch: boolean;
+};
+
 function emptyReminderForm() {
   const remindAt = new Date(Date.now() + 30 * 60 * 1000);
   const local = new Date(remindAt.getTime() - remindAt.getTimezoneOffset() * 60000);
@@ -44,7 +50,7 @@ function emptyReminderForm() {
   };
 }
 
-export function RemindersPanel() {
+export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -70,10 +76,22 @@ export function RemindersPanel() {
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
+      const tasksParams = new URLSearchParams({
+        userId: targetUserId,
+        limit: String(Math.min(200, QUERY_LIMITS.tasks.max)),
+      });
+      const eventsParams = new URLSearchParams({
+        userId: targetUserId,
+        limit: String(Math.min(200, QUERY_LIMITS.events.max)),
+      });
+      const remindersParams = new URLSearchParams({
+        userId: targetUserId,
+        limit: String(Math.min(200, QUERY_LIMITS.reminders.max)),
+      });
       const [tasksResponse, eventsResponse, remindersResponse] = await Promise.all([
-        fetch(`/api/tasks?limit=${Math.min(200, QUERY_LIMITS.tasks.max)}`),
-        fetch(`/api/events?limit=${Math.min(200, QUERY_LIMITS.events.max)}`),
-        fetch(`/api/reminders?limit=${Math.min(200, QUERY_LIMITS.reminders.max)}`),
+        fetch(`/api/tasks?${tasksParams.toString()}`),
+        fetch(`/api/events?${eventsParams.toString()}`),
+        fetch(`/api/reminders?${remindersParams.toString()}`),
       ]);
 
       const tasksPayload = (await tasksResponse.json()) as ApiResponse<Task[]>;
@@ -94,13 +112,20 @@ export function RemindersPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [targetUserId]);
 
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
 
-  const dispatchDueReminders = useCallback(async () => {
+  const dispatchDueReminders = useCallback(async (showUnavailableInfo = false) => {
+    if (!canManageDispatch) {
+      if (showUnavailableInfo) {
+        toast.info("Slanje podsetnika je dostupno samo za trenutno prijavljen nalog.");
+      }
+      return;
+    }
+
     try {
       const response = await fetch("/api/reminders/dispatch", { method: "POST" });
       const payload = (await response.json()) as ApiResponse<
@@ -123,7 +148,7 @@ export function RemindersPanel() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greška pri notifikaciji");
     }
-  }, [fetchAll, permission]);
+  }, [canManageDispatch, fetchAll, permission]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -150,6 +175,7 @@ export function RemindersPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: targetUserId,
           taskId: form.taskId || null,
           eventId: form.eventId || null,
           message: form.message.trim(),
@@ -231,7 +257,7 @@ export function RemindersPanel() {
       <Card className="notion-surface">
         <CardHeader>
           <CardTitle>Novi podsetnik</CardTitle>
-          <CardDescription>Podsetnik za zadatak ili kalendarsku obavezu.</CardDescription>
+          <CardDescription>Podsetnik za zadatak ili kalendarsku obavezu korisnika {targetUserName}.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={createReminder} className="space-y-3">
@@ -275,10 +301,20 @@ export function RemindersPanel() {
               <Button type="submit" disabled={isSaving === "create"}>
                 Sačuvaj podsetnik
               </Button>
-              <Button type="button" variant="outline" onClick={() => void dispatchDueReminders()}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void dispatchDueReminders(true)}
+                disabled={!canManageDispatch}
+              >
                 Proveri dospele
               </Button>
-              <Button type="button" variant="outline" onClick={() => void enableNotifications()}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void enableNotifications()}
+                disabled={!canManageDispatch}
+              >
                 Omogući notifikacije
               </Button>
             </div>
@@ -298,6 +334,7 @@ export function RemindersPanel() {
                 : permission === "default"
                   ? "nije potvrđeno"
                   : "nije podržano"}
+            {!canManageDispatch ? " | pregled za timskog korisnika" : ""}
           </CardDescription>
         </CardHeader>
         <CardContent>

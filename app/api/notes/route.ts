@@ -3,10 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { categories, notes } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  jsonError,
+  parseJsonBody,
+  requireActor,
+  resolveTargetUserId,
+} from "@/lib/api-utils";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
 const listNotesSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
   categoryId: z.string().uuid().optional(),
   pinned: z.enum(["true", "false"]).optional(),
@@ -15,6 +21,7 @@ const listNotesSchema = z.object({
 });
 
 const createNoteSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).max(255),
   content: z.string().trim().min(1).max(20000),
   categoryId: z.string().uuid().nullable().optional(),
@@ -22,9 +29,9 @@ const createNoteSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
@@ -33,13 +40,26 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters", 400, parsedQuery.error.flatten());
   }
 
+  const targetUserGuard = await resolveTargetUserId(
+    actorGuard.actor,
+    parsedQuery.data.userId,
+  );
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
   const page = parsedQuery.data.page ?? 1;
   const limit = parsedQuery.data.limit ?? QUERY_LIMITS.notes.default;
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(notes.userId, userGuard.userId)];
+  const conditions = [eq(notes.userId, targetUserGuard.targetUserId)];
   if (parsedQuery.data.q) {
-    conditions.push(or(ilike(notes.title, `%${parsedQuery.data.q}%`), ilike(notes.content, `%${parsedQuery.data.q}%`))!);
+    conditions.push(
+      or(
+        ilike(notes.title, `%${parsedQuery.data.q}%`),
+        ilike(notes.content, `%${parsedQuery.data.q}%`),
+      )!,
+    );
   }
   if (parsedQuery.data.categoryId) {
     conditions.push(eq(notes.categoryId, parsedQuery.data.categoryId));
@@ -55,6 +75,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: notes.id,
         userId: notes.userId,
+        createdByUserId: notes.createdByUserId,
         categoryId: notes.categoryId,
         title: notes.title,
         content: notes.content,
@@ -89,9 +110,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const body = await parseJsonBody(request);
@@ -105,22 +126,29 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
+  if (!targetUserGuard.ok) {
+    return targetUserGuard.response;
+  }
+
+  const targetUserId = targetUserGuard.targetUserId;
 
   if (input.categoryId) {
     const category = await db.query.categories.findFirst({
-      where: and(eq(categories.id, input.categoryId), eq(categories.userId, userGuard.userId)),
+      where: and(eq(categories.id, input.categoryId), eq(categories.userId, targetUserId)),
       columns: { id: true },
     });
 
     if (!category) {
-      return jsonError("Category does not exist for authenticated user", 400);
+      return jsonError("Category does not exist for selected user", 400);
     }
   }
 
   const [createdNote] = await db
     .insert(notes)
     .values({
-      userId: userGuard.userId,
+      userId: targetUserId,
+      createdByUserId: actorGuard.actor.id,
       categoryId: input.categoryId ?? null,
       title: input.title,
       content: input.content,

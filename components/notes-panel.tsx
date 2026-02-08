@@ -30,6 +30,11 @@ type ApiResponse<T> = {
   error?: { message?: string };
 };
 
+type Props = {
+  targetUserId: string;
+  targetUserName: string;
+};
+
 function emptyNoteForm() {
   return {
     title: "",
@@ -39,7 +44,7 @@ function emptyNoteForm() {
   };
 }
 
-export function NotesPanel() {
+export function NotesPanel({ targetUserId, targetUserName }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [filters, setFilters] = useState({ q: "", categoryId: "" });
@@ -50,18 +55,20 @@ export function NotesPanel() {
   const [isSaving, setIsSaving] = useState<string | null>(null);
 
   const fetchCategories = useCallback(async () => {
-    const response = await fetch("/api/categories");
+    const params = new URLSearchParams({ userId: targetUserId });
+    const response = await fetch(`/api/categories?${params.toString()}`);
     const payload = (await response.json()) as ApiResponse<Category[]>;
     if (!response.ok) {
       throw new Error(payload.error?.message ?? "Neuspešno učitavanje kategorija");
     }
     setCategories(payload.data ?? []);
-  }, []);
+  }, [targetUserId]);
 
   const fetchNotes = useCallback(async () => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
+        userId: targetUserId,
         limit: String(QUERY_LIMITS.notes.max),
       });
       if (filters.q.trim()) params.set("q", filters.q.trim());
@@ -80,7 +87,7 @@ export function NotesPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [filters.categoryId, filters.q]);
+  }, [filters.categoryId, filters.q, targetUserId]);
 
   useEffect(() => {
     void (async () => {
@@ -109,6 +116,7 @@ export function NotesPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: targetUserId,
           title: form.title.trim(),
           content: form.content.trim(),
           categoryId: form.categoryId || null,
@@ -200,7 +208,7 @@ export function NotesPanel() {
       <Card className="notion-surface">
         <CardHeader>
           <CardTitle>Nova beleška</CardTitle>
-          <CardDescription>Editor sa kategorijama, pinovanjem i markdown prečicama.</CardDescription>
+          <CardDescription>Editor sa kategorijama, pinovanjem i markdown prečicama. Korisnik: {targetUserName}.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={createNote} className="space-y-3">
@@ -369,3 +377,4 @@ export function NotesPanel() {
     </div>
   );
 }
+

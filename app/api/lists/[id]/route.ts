@@ -1,9 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { todoLists } from "@/db/schema";
-import { jsonError, parseJsonBody, requireUserId } from "@/lib/api-utils";
+import {
+  canActorAccessUser,
+  jsonError,
+  parseJsonBody,
+  requireActor,
+} from "@/lib/api-utils";
 
 const listIdSchema = z.string().uuid();
 
@@ -20,15 +25,31 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
   const parsedId = listIdSchema.safeParse(params.id);
   if (!parsedId.success) {
     return jsonError("Invalid list id", 400, parsedId.error.flatten());
+  }
+
+  const existingList = await db.query.todoLists.findFirst({
+    where: eq(todoLists.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+    },
+  });
+  if (!existingList) {
+    return jsonError("List not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingList.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
   }
 
   const body = await parseJsonBody(request);
@@ -49,7 +70,7 @@ export async function PATCH(
       title: input.title,
       description: input.description,
     })
-    .where(and(eq(todoLists.id, parsedId.data), eq(todoLists.userId, userGuard.userId)))
+    .where(eq(todoLists.id, parsedId.data))
     .returning({
       id: todoLists.id,
       title: todoLists.title,
@@ -69,9 +90,9 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const userGuard = await requireUserId(request);
-  if (!userGuard.ok) {
-    return userGuard.response;
+  const actorGuard = await requireActor(request);
+  if (!actorGuard.ok) {
+    return actorGuard.response;
   }
 
   const params = await context.params;
@@ -80,9 +101,25 @@ export async function DELETE(
     return jsonError("Invalid list id", 400, parsedId.error.flatten());
   }
 
+  const existingList = await db.query.todoLists.findFirst({
+    where: eq(todoLists.id, parsedId.data),
+    columns: {
+      id: true,
+      userId: true,
+    },
+  });
+  if (!existingList) {
+    return jsonError("List not found", 404);
+  }
+
+  const canAccess = await canActorAccessUser(actorGuard.actor, existingList.userId);
+  if (!canAccess) {
+    return jsonError("Forbidden", 403);
+  }
+
   const [deletedList] = await db
     .delete(todoLists)
-    .where(and(eq(todoLists.id, parsedId.data), eq(todoLists.userId, userGuard.userId)))
+    .where(eq(todoLists.id, parsedId.data))
     .returning({ id: todoLists.id });
 
   if (!deletedList) {

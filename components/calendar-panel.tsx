@@ -15,6 +15,7 @@ type Task = {
   id: string;
   title: string;
   dueDate: string | null;
+  status: "not_started" | "in_progress" | "done";
 };
 
 type CalendarEvent = {
@@ -27,9 +28,23 @@ type CalendarEvent = {
   location: string | null;
 };
 
+type Reminder = {
+  id: string;
+  taskId: string | null;
+  eventId: string | null;
+  message: string;
+  remindAt: string;
+  isSent: boolean;
+};
+
 type ApiResponse<T> = {
   data?: T;
   error?: { message?: string };
+};
+
+type Props = {
+  targetUserId: string;
+  targetUserName: string;
 };
 
 function dayKeyFromDate(date: Date) {
@@ -86,12 +101,13 @@ function emptyEventForm(anchor = new Date()) {
   };
 }
 
-export function CalendarPanel() {
+export function CalendarPanel({ targetUserId, targetUserName }: Props) {
   const [calendarView, setCalendarView] = useState<CalendarView>("month");
   const [anchor, setAnchor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [form, setForm] = useState(emptyEventForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
@@ -145,17 +161,37 @@ export function CalendarPanel() {
     return map;
   }, [tasks]);
 
+  const remindersByDay = useMemo(() => {
+    const map = new Map<string, Reminder[]>();
+    for (const reminder of reminders) {
+      const key = dayKeyFromIso(reminder.remindAt);
+      const next = map.get(key) ?? [];
+      next.push(reminder);
+      map.set(key, next);
+    }
+    return map;
+  }, [reminders]);
+
+  const selectedDayEvents = selectedDay ? eventsByDay.get(selectedDay) ?? [] : [];
+  const selectedDayTasks = selectedDay ? tasksByDay.get(selectedDay) ?? [] : [];
+  const selectedDayReminders = selectedDay ? remindersByDay.get(selectedDay) ?? [] : [];
+
   const fetchTasks = useCallback(async () => {
-    const response = await fetch(`/api/tasks?limit=${Math.min(200, QUERY_LIMITS.tasks.max)}`);
+    const params = new URLSearchParams({
+      userId: targetUserId,
+      limit: String(Math.min(300, QUERY_LIMITS.tasks.max)),
+    });
+    const response = await fetch(`/api/tasks?${params.toString()}`);
     const payload = (await response.json()) as ApiResponse<Task[]>;
     if (!response.ok) {
-      throw new Error(payload.error?.message ?? "Neuspešno učitavanje zadataka");
+      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje zadataka");
     }
     setTasks(payload.data ?? []);
-  }, []);
+  }, [targetUserId]);
 
   const fetchEvents = useCallback(async () => {
     const params = new URLSearchParams({
+      userId: targetUserId,
       startsFrom: range.start.toISOString(),
       startsTo: range.end.toISOString(),
       limit: String(Math.min(300, QUERY_LIMITS.events.max)),
@@ -163,28 +199,43 @@ export function CalendarPanel() {
     const response = await fetch(`/api/events?${params.toString()}`);
     const payload = (await response.json()) as ApiResponse<CalendarEvent[]>;
     if (!response.ok) {
-      throw new Error(payload.error?.message ?? "Neuspešno učitavanje događaja");
+      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje dogadjaja");
     }
     setEvents(payload.data ?? []);
-  }, [range.end, range.start]);
+  }, [range.end, range.start, targetUserId]);
+
+  const fetchReminders = useCallback(async () => {
+    const params = new URLSearchParams({
+      userId: targetUserId,
+      remindFrom: range.start.toISOString(),
+      remindTo: range.end.toISOString(),
+      limit: String(Math.min(300, QUERY_LIMITS.reminders.max)),
+    });
+    const response = await fetch(`/api/reminders?${params.toString()}`);
+    const payload = (await response.json()) as ApiResponse<Reminder[]>;
+    if (!response.ok) {
+      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje podsetnika");
+    }
+    setReminders(payload.data ?? []);
+  }, [range.end, range.start, targetUserId]);
 
   useEffect(() => {
     setIsLoading(true);
     void (async () => {
       try {
-        await Promise.all([fetchTasks(), fetchEvents()]);
+        await Promise.all([fetchTasks(), fetchEvents(), fetchReminders()]);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Greška pri učitavanju kalendara");
+        toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju kalendara");
       } finally {
         setIsLoading(false);
       }
     })();
-  }, [fetchEvents, fetchTasks]);
+  }, [fetchEvents, fetchReminders, fetchTasks]);
 
   async function createEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form.title.trim()) {
-      toast.error("Naziv događaja je obavezan.");
+      toast.error("Naziv dogadjaja je obavezan.");
       return;
     }
 
@@ -194,6 +245,7 @@ export function CalendarPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: targetUserId,
           taskId: form.taskId || null,
           title: form.title.trim(),
           description: form.description.trim() || null,
@@ -204,40 +256,41 @@ export function CalendarPanel() {
       });
       const payload = (await response.json()) as ApiResponse<CalendarEvent>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešno kreiranje događaja");
+        throw new Error(payload.error?.message ?? "Neuspesno kreiranje dogadjaja");
       }
-      toast.success("Događaj je sačuvan.");
+      toast.success("Dogadjaj je sacuvan.");
       setForm(emptyEventForm(anchor));
-      await fetchEvents();
+      await Promise.all([fetchEvents(), fetchReminders()]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri kreiranju događaja");
+      toast.error(error instanceof Error ? error.message : "Greska pri kreiranju dogadjaja");
     } finally {
       setIsSaving(null);
     }
   }
 
   async function deleteEvent(entry: CalendarEvent) {
-    if (!window.confirm(`Obrisati događaj "${entry.title}"?`)) return;
+    if (!window.confirm(`Obrisati dogadjaj "${entry.title}"?`)) return;
 
     setIsSaving(`delete-${entry.id}`);
     try {
       const response = await fetch(`/api/events/${entry.id}`, { method: "DELETE" });
       const payload = (await response.json()) as ApiResponse<{ id: string }>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešno brisanje događaja");
+        throw new Error(payload.error?.message ?? "Neuspesno brisanje dogadjaja");
       }
-      toast.success("Događaj je obrisan.");
-      await fetchEvents();
+      toast.success("Dogadjaj je obrisan.");
+      await Promise.all([fetchEvents(), fetchReminders()]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri brisanju događaja");
+      toast.error(error instanceof Error ? error.message : "Greska pri brisanju dogadjaja");
     } finally {
       setIsSaving(null);
     }
   }
 
   async function editEvent(entry: CalendarEvent) {
-    const title = window.prompt("Novi naziv događaja", entry.title)?.trim();
+    const title = window.prompt("Novi naziv dogadjaja", entry.title)?.trim();
     if (!title) return;
+
     setIsSaving(`edit-${entry.id}`);
     try {
       const response = await fetch(`/api/events/${entry.id}`, {
@@ -247,12 +300,12 @@ export function CalendarPanel() {
       });
       const payload = (await response.json()) as ApiResponse<CalendarEvent>;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Neuspešna izmena događaja");
+        throw new Error(payload.error?.message ?? "Neuspesna izmena dogadjaja");
       }
-      toast.success("Događaj je izmenjen.");
+      toast.success("Dogadjaj je izmenjen.");
       await fetchEvents();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greška pri izmeni događaja");
+      toast.error(error instanceof Error ? error.message : "Greska pri izmeni dogadjaja");
     } finally {
       setIsSaving(null);
     }
@@ -275,33 +328,51 @@ export function CalendarPanel() {
   }
 
   function onDayClick(day: string) {
-    setSelectedDay(day);
+    setSelectedDay((current) => (current === day ? null : day));
     const date = new Date(`${day}T09:00:00`);
     setForm(emptyEventForm(date));
   }
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200 grid gap-4 xl:grid-cols-[1.15fr_1fr]">
-      <Card className="notion-surface">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 grid gap-4 xl:grid-cols-[1.15fr_1fr]">
+      <Card className="notion-surface animate-in fade-in-0 slide-in-from-left-2 duration-500">
         <CardHeader>
           <CardTitle>Kalendar vremena</CardTitle>
-          <CardDescription>Dnevni, nedeljni i mesečni prikaz obaveza.</CardDescription>
+          <CardDescription>
+            Dnevni, nedeljni i mesecni prikaz obaveza. Korisnik: {targetUserName}.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="xs" variant="outline" onClick={() => moveCalendar("prev")}>
+            <Button
+              size="xs"
+              variant="outline"
+              className="transition-transform duration-200 hover:-translate-y-0.5"
+              onClick={() => moveCalendar("prev")}
+            >
               Prethodno
             </Button>
-            <Button size="xs" variant="outline" onClick={() => setAnchor(new Date())}>
+            <Button
+              size="xs"
+              variant="outline"
+              className="transition-transform duration-200 hover:-translate-y-0.5"
+              onClick={() => setAnchor(new Date())}
+            >
               Danas
             </Button>
-            <Button size="xs" variant="outline" onClick={() => moveCalendar("next")}>
-              Sledeće
+            <Button
+              size="xs"
+              variant="outline"
+              className="transition-transform duration-200 hover:-translate-y-0.5"
+              onClick={() => moveCalendar("next")}
+            >
+              Sledece
             </Button>
             <div className="ml-auto flex gap-1">
               <Button
                 size="xs"
                 variant={calendarView === "day" ? "default" : "outline"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
                 onClick={() => setCalendarView("day")}
               >
                 Dan
@@ -309,6 +380,7 @@ export function CalendarPanel() {
               <Button
                 size="xs"
                 variant={calendarView === "week" ? "default" : "outline"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
                 onClick={() => setCalendarView("week")}
               >
                 Nedelja
@@ -316,6 +388,7 @@ export function CalendarPanel() {
               <Button
                 size="xs"
                 variant={calendarView === "month" ? "default" : "outline"}
+                className="transition-transform duration-200 hover:-translate-y-0.5"
                 onClick={() => setCalendarView("month")}
               >
                 Mesec
@@ -327,81 +400,117 @@ export function CalendarPanel() {
           </p>
 
           {isLoading ? (
-            <SectionLoader label="Učitavanje kalendara..." />
-          ) : calendarView === "month" ? (
-            <div className="space-y-2">
-              <div className="grid grid-cols-7 text-center text-[11px] text-muted-foreground">
-                <span>Pon</span>
-                <span>Uto</span>
-                <span>Sre</span>
-                <span>Čet</span>
-                <span>Pet</span>
-                <span>Sub</span>
-                <span>Ned</span>
-              </div>
-              <div className="grid grid-cols-7 gap-1">
-                {days.map((day) => {
-                  const key = dayKeyFromDate(day);
-                  const dayEvents = eventsByDay.get(key) ?? [];
-                  const dayTasks = tasksByDay.get(key) ?? [];
-                  const currentMonth = day.getMonth() === anchor.getMonth();
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => onDayClick(key)}
-                      className={`min-h-24 rounded-md border p-1 text-left text-[11px] ${
-                        selectedDay === key ? "border-primary bg-primary/10" : "hover:bg-muted/50"
-                      } ${currentMonth ? "bg-background" : "bg-muted/30 text-muted-foreground"}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{day.getDate()}</span>
-                        <span>{dayEvents.length + dayTasks.length}</span>
-                      </div>
-                      {dayEvents.slice(0, 2).map((entry) => (
-                        <p key={entry.id} className="mt-1 truncate rounded bg-primary/10 px-1">
-                          {entry.title}
-                        </p>
-                      ))}
-                      {dayTasks.slice(0, 1).map((task) => (
-                        <p key={task.id} className="mt-1 truncate rounded bg-muted px-1">
-                          Rok: {task.title}
-                        </p>
-                      ))}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <SectionLoader label="Ucitavanje kalendara..." />
           ) : (
-            <div className="space-y-2">
-              {days.map((day) => {
-                const key = dayKeyFromDate(day);
-                if (calendarView === "day" && key !== dayKeyFromDate(anchor)) return null;
+            <div className={`grid gap-3 ${selectedDay ? "xl:grid-cols-[minmax(0,1fr)_280px]" : "grid-cols-1"}`}>
+              <div className="space-y-2">
+                {calendarView === "month" ? (
+                  <>
+                    <div className="grid grid-cols-7 text-center text-[11px] text-muted-foreground">
+                      <span>Pon</span>
+                      <span>Uto</span>
+                      <span>Sre</span>
+                      <span>Cet</span>
+                      <span>Pet</span>
+                      <span>Sub</span>
+                      <span>Ned</span>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                      {days.map((day) => {
+                        const key = dayKeyFromDate(day);
+                        const dayEvents = eventsByDay.get(key) ?? [];
+                        const dayTasks = tasksByDay.get(key) ?? [];
+                        const dayReminders = remindersByDay.get(key) ?? [];
+                        const currentMonth = day.getMonth() === anchor.getMonth();
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => onDayClick(key)}
+                            className={`min-h-24 rounded-md border p-1 text-left text-[11px] transition-all duration-200 ${
+                              selectedDay === key
+                                ? "border-primary bg-primary/10 shadow-sm"
+                                : "hover:-translate-y-0.5 hover:bg-muted/50"
+                            } ${currentMonth ? "bg-background" : "bg-muted/30 text-muted-foreground"}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">{day.getDate()}</span>
+                              <span>{dayEvents.length + dayTasks.length + dayReminders.length}</span>
+                            </div>
+                            {dayEvents.slice(0, 1).map((entry) => (
+                              <p key={entry.id} className="mt-1 truncate rounded bg-primary/10 px-1">
+                                E: {entry.title}
+                              </p>
+                            ))}
+                            {dayTasks.slice(0, 1).map((task) => (
+                              <p key={task.id} className="mt-1 truncate rounded bg-muted px-1">
+                                T: {task.title}
+                              </p>
+                            ))}
+                            {dayReminders.slice(0, 1).map((reminder) => (
+                              <p key={reminder.id} className="mt-1 truncate rounded bg-amber-500/10 px-1">
+                                R: {reminder.message}
+                              </p>
+                            ))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {days.map((day) => {
+                      const key = dayKeyFromDate(day);
+                      if (calendarView === "day" && key !== dayKeyFromDate(anchor)) return null;
 
-                const dayEvents = eventsByDay.get(key) ?? [];
-                const dayTasks = tasksByDay.get(key) ?? [];
-                return (
-                  <article key={key} className="rounded-lg border bg-background p-3 text-xs">
-                    <h3 className="font-medium">{day.toLocaleDateString()}</h3>
-                    {dayEvents.length === 0 && dayTasks.length === 0 ? (
-                      <p className="text-muted-foreground">Nema obaveza.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2">
-                        {dayEvents.map((entry) => (
-                          <div key={entry.id} className="rounded-md border bg-muted/35 p-2">
-                            <p className="font-medium">{entry.title}</p>
+                      const dayEvents = eventsByDay.get(key) ?? [];
+                      const dayTasks = tasksByDay.get(key) ?? [];
+                      const dayReminders = remindersByDay.get(key) ?? [];
+                      return (
+                        <article
+                          key={key}
+                          className={`rounded-lg border bg-background p-3 text-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm ${
+                            selectedDay === key ? "border-primary/60" : ""
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() => onDayClick(key)}
+                          >
+                            <h3 className="font-medium">{day.toLocaleDateString()}</h3>
                             <p className="text-muted-foreground">
-                              {new Date(entry.startsAt).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}{" "}
-                              -{" "}
-                              {new Date(entry.endsAt).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
+                              {dayEvents.length} dogadjaja, {dayTasks.length} taskova, {dayReminders.length} podsetnika
                             </p>
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {selectedDay ? (
+                <aside className="notion-surface animate-in fade-in-0 slide-in-from-right-2 duration-300 rounded-lg p-3 text-xs xl:sticky xl:top-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Mini pregled dana</p>
+                      <p className="font-medium">{new Date(`${selectedDay}T00:00:00`).toLocaleDateString()}</p>
+                    </div>
+                    <Button size="xs" variant="outline" onClick={() => setSelectedDay(null)}>
+                      Zatvori
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-md border bg-background/70 p-2">
+                      <p className="font-medium">Dogadjaji ({selectedDayEvents.length})</p>
+                      {selectedDayEvents.length === 0 ? (
+                        <p className="text-muted-foreground">Nema dogadjaja.</p>
+                      ) : (
+                        selectedDayEvents.map((entry) => (
+                          <div key={entry.id} className="mt-1 rounded border bg-background p-1.5">
+                            <p className="truncate text-muted-foreground">- {entry.title}</p>
                             <div className="mt-1 flex gap-1">
                               <Button size="xs" variant="outline" onClick={() => void editEvent(entry)}>
                                 Uredi
@@ -409,38 +518,59 @@ export function CalendarPanel() {
                               <Button
                                 size="xs"
                                 variant="destructive"
-                                onClick={() => void deleteEvent(entry)}
                                 disabled={isSaving === `delete-${entry.id}`}
+                                onClick={() => void deleteEvent(entry)}
                               >
-                                Obriši
+                                Obrisi
                               </Button>
                             </div>
                           </div>
-                        ))}
-                        {dayTasks.map((task) => (
-                          <div key={task.id} className="rounded-md border bg-background p-2">
-                            <p className="font-medium">Rok zadatka: {task.title}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
+                        ))
+                      )}
+                    </div>
+                    <div className="rounded-md border bg-background/70 p-2">
+                      <p className="font-medium">Taskovi ({selectedDayTasks.length})</p>
+                      {selectedDayTasks.length === 0 ? (
+                        <p className="text-muted-foreground">Nema taskova.</p>
+                      ) : (
+                        selectedDayTasks.map((task) => (
+                          <p key={task.id} className="truncate text-muted-foreground">
+                            - {task.title}
+                          </p>
+                        ))
+                      )}
+                    </div>
+                    <div className="rounded-md border bg-background/70 p-2">
+                      <p className="font-medium">Podsetnici ({selectedDayReminders.length})</p>
+                      {selectedDayReminders.length === 0 ? (
+                        <p className="text-muted-foreground">Nema podsetnika.</p>
+                      ) : (
+                        selectedDayReminders.map((reminder) => (
+                          <p key={reminder.id} className="truncate text-muted-foreground">
+                            - {reminder.message}
+                          </p>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </aside>
+              ) : null}
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Card className="notion-surface">
+      <Card className="notion-surface animate-in fade-in-0 slide-in-from-right-2 duration-500 hover:-translate-y-0.5">
         <CardHeader>
           <CardTitle>Dodaj obavezu</CardTitle>
-          <CardDescription>Kreiranje događaja direktno iz prikaza kalendara.</CardDescription>
+          <CardDescription>
+            Kreiranje dogadjaja direktno iz prikaza kalendara za korisnika {targetUserName}.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={createEvent} className="space-y-3">
+          <form onSubmit={createEvent} className="space-y-3 animate-in fade-in-0 duration-300">
             <Input
-              placeholder="Naziv događaja"
+              placeholder="Naziv dogadjaja"
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
@@ -451,9 +581,9 @@ export function CalendarPanel() {
               onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
             />
             <label className="text-xs">
-              <span className="mb-1 block text-muted-foreground">Povezan zadatak (opciono)</span>
+              <span className="mb-1 block text-muted-foreground">Povezan task (opciono)</span>
               <select
-                className="h-7 w-full rounded-md border bg-background px-2 text-xs"
+                className="h-7 w-full rounded-md border bg-background px-2 text-xs transition-colors duration-200 hover:border-primary/40"
                 value={form.taskId}
                 onChange={(event) => setForm((current) => ({ ...current, taskId: event.target.value }))}
               >
@@ -482,8 +612,12 @@ export function CalendarPanel() {
               value={form.location}
               onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}
             />
-            <Button type="submit" disabled={isSaving === "create"}>
-              Sačuvaj događaj
+            <Button
+              type="submit"
+              disabled={isSaving === "create"}
+              className="transition-transform duration-200 hover:-translate-y-0.5"
+            >
+              Sacuvaj dogadjaj
             </Button>
           </form>
         </CardContent>
