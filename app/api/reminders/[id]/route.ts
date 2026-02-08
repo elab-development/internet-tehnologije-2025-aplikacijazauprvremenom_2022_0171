@@ -71,6 +71,12 @@ export async function PATCH(
   }
 
   const input = parsedBody.data;
+  if (input.remindAt) {
+    const remindAtDate = new Date(input.remindAt);
+    if (remindAtDate.getTime() < Date.now()) {
+      return jsonError("Vreme podsetnika ne moze biti u proslosti", 400);
+    }
+  }
 
   const lockedForUser = isLockedForUser(
     actorGuard.actor,

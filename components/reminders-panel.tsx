@@ -49,6 +49,7 @@ type Reminder = {
 
 type ApiResponse<T> = {
   data?: T;
+  meta?: { page: number; limit: number; total: number; totalPages: number };
   error?: { message?: string };
 };
 
@@ -75,9 +76,13 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [form, setForm] = useState(emptyReminderForm);
   const [deleteDialog, setDeleteDialog] = useState<Reminder | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [metaTotal, setMetaTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  const remindersPerPage = QUERY_LIMITS.reminders.default;
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
@@ -94,19 +99,23 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
   const eventById = useMemo(() => new Map(events.map((entry) => [entry.id, entry])), [events]);
 
   const fetchAll = useCallback(async () => {
+    const page = currentPage;
     setIsLoading(true);
     try {
       const tasksParams = new URLSearchParams({
         userId: targetUserId,
-        limit: String(Math.min(200, QUERY_LIMITS.tasks.max)),
+        page: "1",
+        limit: String(QUERY_LIMITS.tasks.default),
       });
       const eventsParams = new URLSearchParams({
         userId: targetUserId,
-        limit: String(Math.min(200, QUERY_LIMITS.events.max)),
+        page: "1",
+        limit: String(QUERY_LIMITS.events.default),
       });
       const remindersParams = new URLSearchParams({
         userId: targetUserId,
-        limit: String(Math.min(200, QUERY_LIMITS.reminders.max)),
+        page: String(page),
+        limit: String(remindersPerPage),
       });
 
       const [tasksResponse, eventsResponse, remindersResponse] = await Promise.all([
@@ -128,16 +137,24 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
       setTasks(tasksPayload.data ?? []);
       setEvents(eventsPayload.data ?? []);
       setReminders(remindersPayload.data ?? []);
+      setMetaTotal(remindersPayload.meta?.total ?? null);
+      setTotalPages(remindersPayload.meta?.totalPages ?? 1);
+      setCurrentPage(remindersPayload.meta?.page ?? page);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju podsetnika");
     } finally {
       setIsLoading(false);
     }
-  }, [targetUserId]);
+  }, [currentPage, remindersPerPage, targetUserId]);
 
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setTotalPages(1);
+  }, [targetUserId]);
 
   const dispatchDueReminders = useCallback(
     async (showUnavailableInfo = false) => {
@@ -383,6 +400,32 @@ export function RemindersPanel({ targetUserId, targetUserName, canManageDispatch
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {metaTotal && metaTotal > sortedReminders.length ? (
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                Prikazano {sortedReminders.length} od {metaTotal} podsetnika.
+              </p>
+            ) : null}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">
+                Strana {currentPage} / {totalPages}
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={isLoading || currentPage <= 1}
+                onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+              >
+                Prethodna
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={isLoading || currentPage >= totalPages}
+                onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
+              >
+                Sledeca
+              </Button>
+            </div>
             {isLoading ? (
               <SectionLoader label="Ucitavanje podsetnika..." />
             ) : sortedReminders.length === 0 ? (

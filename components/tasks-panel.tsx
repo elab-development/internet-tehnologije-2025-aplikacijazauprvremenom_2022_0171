@@ -67,7 +67,7 @@ type Task = {
 
 type ApiResponse<T> = {
   data?: T;
-  meta?: { total: number };
+  meta?: { page: number; limit: number; total: number; totalPages: number };
   error?: { message?: string };
 };
 
@@ -184,8 +184,11 @@ export function TasksPanel({
     priority: "",
   });
   const [metaTotal, setMetaTotal] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+  const tasksPerPage = QUERY_LIMITS.tasks.default;
 
   useEffect(() => {
     if (!selectedListId) return;
@@ -229,15 +232,19 @@ export function TasksPanel({
     if (!selectedListId) {
       setTasks([]);
       setMetaTotal(null);
+      setTotalPages(1);
+      setCurrentPage(1);
       return;
     }
 
+    const page = currentPage;
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
         userId: targetUserId,
         listId: selectedListId,
-        limit: String(Math.min(120, QUERY_LIMITS.tasks.max)),
+        page: String(page),
+        limit: String(tasksPerPage),
       });
       if (filters.query.trim()) params.set("q", filters.query.trim());
       if (filters.categoryId) params.set("categoryId", filters.categoryId);
@@ -251,12 +258,23 @@ export function TasksPanel({
       }
       setTasks(payload.data ?? []);
       setMetaTotal(payload.meta?.total ?? null);
+      setTotalPages(payload.meta?.totalPages ?? 1);
+      setCurrentPage(payload.meta?.page ?? page);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju zadataka");
     } finally {
       setIsLoading(false);
     }
-  }, [filters.categoryId, filters.priority, filters.query, filters.status, selectedListId, targetUserId]);
+  }, [
+    currentPage,
+    filters.categoryId,
+    filters.priority,
+    filters.query,
+    filters.status,
+    selectedListId,
+    targetUserId,
+    tasksPerPage,
+  ]);
 
   useEffect(() => {
     void (async () => {
@@ -271,6 +289,15 @@ export function TasksPanel({
   useEffect(() => {
     void fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setTotalPages(1);
+  }, [selectedListId, targetUserId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.categoryId, filters.priority, filters.query, filters.status]);
 
   async function refreshAll() {
     try {
@@ -1030,7 +1057,9 @@ export function TasksPanel({
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => void fetchTasks()}
+                      onClick={() => {
+                        setCurrentPage(1);
+                      }}
                       className="transition-transform duration-200 hover:-translate-y-0.5"
                     >
                       Primeni filtere
@@ -1038,7 +1067,10 @@ export function TasksPanel({
                     <Button
                       variant="ghost"
                       className="transition-transform duration-200 hover:-translate-y-0.5"
-                      onClick={() => setFilters({ query: "", categoryId: "", status: "", priority: "" })}
+                      onClick={() => {
+                        setFilters({ query: "", categoryId: "", status: "", priority: "" });
+                        setCurrentPage(1);
+                      }}
                     >
                       Reset filtera
                     </Button>
@@ -1050,6 +1082,28 @@ export function TasksPanel({
                   {metaTotal && metaTotal > tasks.length ? (
                     <p className="text-[11px] text-muted-foreground">Prikazano {tasks.length} od {metaTotal} zadataka.</p>
                   ) : null}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      Strana {currentPage} / {totalPages}
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={isLoading || currentPage <= 1}
+                      onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+                    >
+                      Prethodna
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={isLoading || currentPage >= totalPages}
+                      onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
+                    >
+                      Sledeca
+                    </Button>
+                  </div>
 
                   {isLoading ? (
                     <SectionLoader label="Ucitavanje zadataka..." />

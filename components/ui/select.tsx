@@ -6,7 +6,58 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"
 import { RiArrowDownSLine, RiCheckLine, RiArrowUpSLine } from "@remixicon/react"
 
-const Select = SelectPrimitive.Root
+type SelectItemOption = {
+  value: unknown
+  label: React.ReactNode
+}
+
+function collectSelectItems(children: React.ReactNode, result: SelectItemOption[]) {
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return
+
+    const element = child as React.ReactElement<
+      SelectPrimitive.Item.Props & { children?: React.ReactNode }
+    >
+
+    if (element.type === SelectItem || element.type === SelectPrimitive.Item) {
+      const itemProps = element.props
+
+      if (itemProps.value !== undefined) {
+        result.push({
+          value: itemProps.value,
+          label: itemProps.label ?? itemProps.children,
+        })
+      }
+    }
+
+    if (element.props.children) {
+      collectSelectItems(element.props.children, result)
+    }
+  })
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>({
+  children,
+  items,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  const derivedItems = React.useMemo(() => {
+    if (items) return items
+
+    const collected: SelectItemOption[] = []
+    collectSelectItems(children, collected)
+
+    return collected.length > 0
+      ? (collected as Array<{ label: React.ReactNode; value: Value }>)
+      : undefined
+  }, [children, items])
+
+  return (
+    <SelectPrimitive.Root {...props} items={derivedItems}>
+      {children}
+    </SelectPrimitive.Root>
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (

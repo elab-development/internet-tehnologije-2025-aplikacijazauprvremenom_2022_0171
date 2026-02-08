@@ -45,7 +45,7 @@ type Note = {
 
 type ApiResponse<T> = {
   data?: T;
-  meta?: { total: number };
+  meta?: { page: number; limit: number; total: number; totalPages: number };
   error?: { message?: string };
 };
 
@@ -70,11 +70,14 @@ export function NotesPanel({ targetUserId, targetUserName }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [filters, setFilters] = useState({ q: "", categoryId: "" });
   const [metaTotal, setMetaTotal] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [form, setForm] = useState(emptyNoteForm);
   const [editor, setEditor] = useState<{ id: string; form: ReturnType<typeof emptyNoteForm> } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<Note | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+  const notesPerPage = QUERY_LIMITS.notes.default;
 
   const categoriesById = useMemo(() => new Map(categories.map((entry) => [entry.id, entry])), [categories]);
 
@@ -89,11 +92,13 @@ export function NotesPanel({ targetUserId, targetUserName }: Props) {
   }, [targetUserId]);
 
   const fetchNotes = useCallback(async () => {
+    const page = currentPage;
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
         userId: targetUserId,
-        limit: String(QUERY_LIMITS.notes.max),
+        page: String(page),
+        limit: String(notesPerPage),
       });
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.categoryId) params.set("categoryId", filters.categoryId);
@@ -106,12 +111,14 @@ export function NotesPanel({ targetUserId, targetUserName }: Props) {
 
       setNotes(payload.data ?? []);
       setMetaTotal(payload.meta?.total ?? null);
+      setTotalPages(payload.meta?.totalPages ?? 1);
+      setCurrentPage(payload.meta?.page ?? page);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju beleski");
     } finally {
       setIsLoading(false);
     }
-  }, [filters.categoryId, filters.q, targetUserId]);
+  }, [currentPage, filters.categoryId, filters.q, notesPerPage, targetUserId]);
 
   useEffect(() => {
     void (async () => {
@@ -126,6 +133,15 @@ export function NotesPanel({ targetUserId, targetUserName }: Props) {
   useEffect(() => {
     void fetchNotes();
   }, [fetchNotes]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setTotalPages(1);
+  }, [targetUserId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.categoryId, filters.q]);
 
   async function createNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -418,17 +434,45 @@ export function NotesPanel({ targetUserId, targetUserName }: Props) {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => void fetchNotes()}>
+                <Button variant="outline" onClick={() => setCurrentPage(1)}>
                   <RiSearch2Line data-icon="inline-start" />
                   Pretrazi
                 </Button>
-                <Button variant="ghost" onClick={() => setFilters({ q: "", categoryId: "" })}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setFilters({ q: "", categoryId: "" });
+                    setCurrentPage(1);
+                  }}
+                >
                   Reset
                 </Button>
               </div>
               {metaTotal && metaTotal > notes.length ? (
                 <p className="text-[11px] text-muted-foreground">Prikazano {notes.length} od {metaTotal} beleski.</p>
               ) : null}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  Strana {currentPage} / {totalPages}
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={isLoading || currentPage <= 1}
+                  onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+                >
+                  Prethodna
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={isLoading || currentPage >= totalPages}
+                  onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
+                >
+                  Sledeca
+                </Button>
+              </div>
 
               {isLoading ? (
                 <SectionLoader label="Ucitavanje beleski..." />

@@ -56,7 +56,15 @@ type Reminder = {
 
 type ApiResponse<T> = {
   data?: T;
+  meta?: { page: number; limit: number; total: number; totalPages: number };
   error?: { message?: string };
+};
+
+type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 };
 
 type Props = {
@@ -125,6 +133,13 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [calendarPage, setCalendarPage] = useState(1);
+  const [calendarTotalPages, setCalendarTotalPages] = useState(1);
+  const [calendarTotals, setCalendarTotals] = useState({
+    tasks: 0,
+    events: 0,
+    reminders: 0,
+  });
   const [form, setForm] = useState(emptyEventForm);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
@@ -134,6 +149,9 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
     value: string;
   } | null>(null);
   const [deleteEventDialog, setDeleteEventDialog] = useState<CalendarEvent | null>(null);
+  const tasksPerPage = QUERY_LIMITS.tasks.default;
+  const eventsPerPage = QUERY_LIMITS.events.default;
+  const remindersPerPage = QUERY_LIMITS.reminders.default;
 
   const range = useMemo(() => {
     if (calendarView === "day") {
@@ -199,61 +217,132 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
   const selectedDayTasks = selectedDay ? tasksByDay.get(selectedDay) ?? [] : [];
   const selectedDayReminders = selectedDay ? remindersByDay.get(selectedDay) ?? [] : [];
 
-  const fetchTasks = useCallback(async () => {
-    const params = new URLSearchParams({
-      userId: targetUserId,
-      limit: String(Math.min(300, QUERY_LIMITS.tasks.max)),
-    });
-    const response = await fetch(`/api/tasks?${params.toString()}`);
-    const payload = (await response.json()) as ApiResponse<Task[]>;
-    if (!response.ok) {
-      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje zadataka");
-    }
-    setTasks(payload.data ?? []);
-  }, [targetUserId]);
+  const fetchTasks = useCallback(
+    async (page: number): Promise<PaginationMeta> => {
+      const params = new URLSearchParams({
+        userId: targetUserId,
+        page: String(page),
+        limit: String(tasksPerPage),
+      });
+      const response = await fetch(`/api/tasks?${params.toString()}`);
+      const payload = (await response.json()) as ApiResponse<Task[]>;
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "Neuspesno ucitavanje zadataka");
+      }
+      setTasks(payload.data ?? []);
+      return (
+        payload.meta ?? {
+          page,
+          limit: tasksPerPage,
+          total: payload.data?.length ?? 0,
+          totalPages: 1,
+        }
+      );
+    },
+    [targetUserId, tasksPerPage],
+  );
 
-  const fetchEvents = useCallback(async () => {
-    const params = new URLSearchParams({
-      userId: targetUserId,
-      startsFrom: range.start.toISOString(),
-      startsTo: range.end.toISOString(),
-      limit: String(Math.min(300, QUERY_LIMITS.events.max)),
-    });
-    const response = await fetch(`/api/events?${params.toString()}`);
-    const payload = (await response.json()) as ApiResponse<CalendarEvent[]>;
-    if (!response.ok) {
-      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje dogadjaja");
-    }
-    setEvents(payload.data ?? []);
-  }, [range.end, range.start, targetUserId]);
+  const fetchEvents = useCallback(
+    async (page: number): Promise<PaginationMeta> => {
+      const params = new URLSearchParams({
+        userId: targetUserId,
+        startsFrom: range.start.toISOString(),
+        startsTo: range.end.toISOString(),
+        page: String(page),
+        limit: String(eventsPerPage),
+      });
+      const response = await fetch(`/api/events?${params.toString()}`);
+      const payload = (await response.json()) as ApiResponse<CalendarEvent[]>;
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "Neuspesno ucitavanje dogadjaja");
+      }
+      setEvents(payload.data ?? []);
+      return (
+        payload.meta ?? {
+          page,
+          limit: eventsPerPage,
+          total: payload.data?.length ?? 0,
+          totalPages: 1,
+        }
+      );
+    },
+    [eventsPerPage, range.end, range.start, targetUserId],
+  );
 
-  const fetchReminders = useCallback(async () => {
-    const params = new URLSearchParams({
-      userId: targetUserId,
-      remindFrom: range.start.toISOString(),
-      remindTo: range.end.toISOString(),
-      limit: String(Math.min(300, QUERY_LIMITS.reminders.max)),
-    });
-    const response = await fetch(`/api/reminders?${params.toString()}`);
-    const payload = (await response.json()) as ApiResponse<Reminder[]>;
-    if (!response.ok) {
-      throw new Error(payload.error?.message ?? "Neuspesno ucitavanje podsetnika");
-    }
-    setReminders(payload.data ?? []);
-  }, [range.end, range.start, targetUserId]);
+  const fetchReminders = useCallback(
+    async (page: number): Promise<PaginationMeta> => {
+      const params = new URLSearchParams({
+        userId: targetUserId,
+        remindFrom: range.start.toISOString(),
+        remindTo: range.end.toISOString(),
+        page: String(page),
+        limit: String(remindersPerPage),
+      });
+      const response = await fetch(`/api/reminders?${params.toString()}`);
+      const payload = (await response.json()) as ApiResponse<Reminder[]>;
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "Neuspesno ucitavanje podsetnika");
+      }
+      setReminders(payload.data ?? []);
+      return (
+        payload.meta ?? {
+          page,
+          limit: remindersPerPage,
+          total: payload.data?.length ?? 0,
+          totalPages: 1,
+        }
+      );
+    },
+    [range.end, range.start, remindersPerPage, targetUserId],
+  );
 
-  useEffect(() => {
-    setIsLoading(true);
-    void (async () => {
+  const loadCalendarData = useCallback(
+    async (pageOverride?: number) => {
+      const page = pageOverride ?? calendarPage;
+      setIsLoading(true);
       try {
-        await Promise.all([fetchTasks(), fetchEvents(), fetchReminders()]);
+        const [tasksMeta, eventsMeta, remindersMeta] = await Promise.all([
+          fetchTasks(page),
+          fetchEvents(page),
+          fetchReminders(page),
+        ]);
+
+        const totalPages = Math.max(
+          tasksMeta.totalPages,
+          eventsMeta.totalPages,
+          remindersMeta.totalPages,
+          1,
+        );
+
+        setCalendarTotals({
+          tasks: tasksMeta.total,
+          events: eventsMeta.total,
+          reminders: remindersMeta.total,
+        });
+        setCalendarTotalPages(totalPages);
+
+        if (page > totalPages) {
+          setCalendarPage(totalPages);
+        } else {
+          setCalendarPage(page);
+        }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju kalendara");
       } finally {
         setIsLoading(false);
       }
-    })();
-  }, [fetchEvents, fetchReminders, fetchTasks]);
+    },
+    [calendarPage, fetchEvents, fetchReminders, fetchTasks],
+  );
+
+  useEffect(() => {
+    void loadCalendarData();
+  }, [loadCalendarData]);
+
+  useEffect(() => {
+    setCalendarPage(1);
+    setCalendarTotalPages(1);
+  }, [calendarView, range.end, range.start, targetUserId]);
 
   async function createEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -283,7 +372,7 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
       }
       toast.success("Dogadjaj je sacuvan.");
       setForm(emptyEventForm(anchor));
-      await Promise.all([fetchEvents(), fetchReminders()]);
+      await loadCalendarData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri kreiranju dogadjaja");
     } finally {
@@ -300,7 +389,7 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
         throw new Error(payload.error?.message ?? "Neuspesno brisanje dogadjaja");
       }
       toast.success("Dogadjaj je obrisan.");
-      await Promise.all([fetchEvents(), fetchReminders()]);
+      await loadCalendarData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri brisanju dogadjaja");
     } finally {
@@ -321,7 +410,7 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
         throw new Error(payload.error?.message ?? "Neuspesna izmena dogadjaja");
       }
       toast.success("Dogadjaj je izmenjen.");
-      await fetchEvents();
+      await loadCalendarData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri izmeni dogadjaja");
     } finally {
@@ -428,6 +517,31 @@ export function CalendarPanel({ targetUserId, targetUserName }: Props) {
           <p className="text-xs text-muted-foreground">
             Opseg: {range.start.toLocaleDateString()} - {range.end.toLocaleDateString()}
           </p>
+          <p className="text-[11px] text-muted-foreground">
+            Ukupno: {calendarTotals.events} dogadjaja, {calendarTotals.tasks} taskova i{" "}
+            {calendarTotals.reminders} podsetnika.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              Strana {calendarPage} / {calendarTotalPages}
+            </span>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isLoading || calendarPage <= 1}
+              onClick={() => setCalendarPage((value) => Math.max(1, value - 1))}
+            >
+              Prethodna
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isLoading || calendarPage >= calendarTotalPages}
+              onClick={() => setCalendarPage((value) => Math.min(calendarTotalPages, value + 1))}
+            >
+              Sledeca
+            </Button>
+          </div>
 
           {isLoading ? (
             <SectionLoader label="Ucitavanje kalendara..." />

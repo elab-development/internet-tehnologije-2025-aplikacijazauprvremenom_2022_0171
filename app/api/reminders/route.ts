@@ -134,6 +134,10 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsedBody.data;
+  const remindAtDate = new Date(input.remindAt);
+  if (remindAtDate.getTime() < Date.now()) {
+    return jsonError("Vreme podsetnika ne moze biti u proslosti", 400);
+  }
   const targetUserGuard = await resolveTargetUserId(actorGuard.actor, input.userId);
   if (!targetUserGuard.ok) {
     return targetUserGuard.response;
@@ -172,7 +176,7 @@ export async function POST(request: NextRequest) {
       taskId: input.taskId ?? null,
       eventId: input.eventId ?? null,
       message: input.message,
-      remindAt: new Date(input.remindAt),
+      remindAt: remindAtDate,
     })
     .returning();
 
