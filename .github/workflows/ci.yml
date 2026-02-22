@@ -8,6 +8,10 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/time_manager_ci
+      BETTER_AUTH_BASE_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: 0123456789abcdef0123456789abcdef
 
     steps:
       - name: Checkout
