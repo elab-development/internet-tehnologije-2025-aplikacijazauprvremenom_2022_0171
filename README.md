@@ -112,6 +112,32 @@ Glavne rute:
 
 Napomena: vecina list endpointa podrzava query filtere i paginaciju (`page`, `limit`, dodatni filteri po modulu).
 
+## API dokumentacija (OpenAPI + Scalar)
+
+OpenAPI specifikacija se generise alatom `next-openapi-gen`, a interaktivna dokumentacija je dostupna preko Scalar UI na:
+
+- `http://localhost:3000/api-docs`
+
+Generisanje specifikacije:
+
+```bash
+pnpm run openapi:generate
+```
+
+Generisani fajl:
+
+- `public/openapi.json` (ne commituje se, build ga generise automatski)
+
+Autentikacija u dokumentaciji:
+
+- API koristi cookie session preko better-auth
+- security schema je podesena na cookie `better-auth.session_token`
+
+Rute iskljucene iz javne dokumentacije:
+
+- `/api/auth/*`
+- `/api/reminders/dispatch`
+
 ## Pokretanje projekta
 
 ### Preduslovi
@@ -154,10 +180,13 @@ App je dostupna na `http://localhost:3000`.
 
 ```bash
 pnpm dev
+pnpm openapi:generate
 pnpm build
 pnpm start
 pnpm lint
 ```
+
+Napomena: `pnpm build` automatski poziva `pnpm openapi:generate` kroz `prebuild` skriptu.
 
 ## Struktura projekta
 
@@ -178,3 +207,15 @@ lib/                    # auth, role, api helperi, servisna logika
 - `proxy.ts` stiti stranice: neulogovani i deaktivirani nalozi se vracaju na `/login`.
 - Podsetnici se dispatch-uju periodicno (60s), a notifikacije zavise od browser dozvole.
 - `lib/auth-client.ts` trenutno koristi `http://localhost:3000`; za produkciju uskladiti base URL.
+
+## CI pipeline
+
+GitHub Actions workflow se nalazi u:
+
+- `.github/workflows/ci.yml`
+
+Na svaki `push` i `pull_request` pokrece:
+
+1. `pnpm run openapi:generate`
+2. `pnpm lint`
+3. `pnpm build`
