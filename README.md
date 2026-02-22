@@ -208,6 +208,34 @@ lib/                    # auth, role, api helperi, servisna logika
 - Podsetnici se dispatch-uju periodicno (60s), a notifikacije zavise od browser dozvole.
 - `lib/auth-client.ts` trenutno koristi `http://localhost:3000`; za produkciju uskladiti base URL.
 
+## Bezbednost (minimum 3 zastite)
+
+Implementirane su sledece zastite od cestih napada:
+
+1. **CSRF zastita (cookie session API)**
+   - better-auth vec ima ugradjenu CSRF zastitu za `/api/auth/*` (origin/same-site mehanizmi).
+   - Dodatno, custom API rute (`/api/*`, osim `/api/auth/*`) imaju centralni origin check za `POST/PUT/PATCH/DELETE` u `proxy.ts` + `lib/security.ts`.
+   - Ako mutacioni zahtev sa cookie sesijom nema validan `Origin`, zahtev se odbija sa `403`.
+2. **IDOR zastita (kontrola pristupa po resursu)**
+   - Centralizovana u `lib/api-utils.ts` kroz `requireActor`, `resolveTargetUserId`, `canActorAccessUser`, `requireAdmin`.
+   - Time se sprecava pristup tudjim resursima van dozvola uloga (`user/manager/admin`).
+3. **CORS hardening**
+   - API koristi striktan allowlist pristup (`request origin`, `BETTER_AUTH_BASE_URL`, opcioni `ALLOWED_ORIGINS`).
+   - `OPTIONS` preflight se obraduje centralno i odbija neodobrene origine.
+4. **XSS hardening**
+   - React podrazumevano escapuje prikaz teksta (bez `dangerouslySetInnerHTML`).
+   - Globalni security headeri + CSP su podeseni u `next.config.ts` (`Content-Security-Policy`, `X-Frame-Options`, `nosniff`, itd).
+5. **SQL Injection zastita**
+   - Upiti se izvrsavaju preko Drizzle ORM parametarskog API-ja i Zod validacije ulaza.
+   - Nema string konkatenacije raw SQL upita za korisnicki ulaz.
+
+Opcione env promenljive za CORS:
+
+```env
+ALLOWED_ORIGINS=http://localhost:3000,https://tvoj-domen.com
+CORS_ALLOWED_HEADERS=Content-Type, Authorization, X-Requested-With
+```
+
 ## CI pipeline
 
 GitHub Actions workflow se nalazi u:
