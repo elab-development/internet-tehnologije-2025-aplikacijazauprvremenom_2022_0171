@@ -12,6 +12,9 @@ import {
 } from "@/lib/api-utils";
 
 const eventIdSchema = z.string().uuid();
+const eventPathParamsSchema = z.object({
+  id: eventIdSchema,
+});
 
 const updateEventSchema = z
   .object({
@@ -38,6 +41,17 @@ const updateEventSchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Izmena dogadjaja
+ * @description Menja postojeci dogadjaj po identifikatoru.
+ * @tag Dogadjaji
+ * @auth apikey
+ * @pathParams eventPathParamsSchema
+ * @body updateEventSchema
+ * @response 200:OpenApiEventResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -48,13 +62,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = eventIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID dogadjaja", 400, parsedId.error.flatten());
+  const parsedParams = eventPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID dogadjaja", 400, parsedParams.error.flatten());
   }
+  const eventId = parsedParams.data.id;
 
   const existingEvent = await db.query.calendarEvents.findFirst({
-    where: eq(calendarEvents.id, parsedId.data),
+    where: eq(calendarEvents.id, eventId),
     columns: {
       id: true,
       userId: true,
@@ -116,7 +131,7 @@ export async function PATCH(
       endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
       location: input.location,
     })
-    .where(eq(calendarEvents.id, parsedId.data))
+    .where(eq(calendarEvents.id, eventId))
     .returning();
 
   if (!updatedEvent) {
@@ -126,6 +141,16 @@ export async function PATCH(
   return NextResponse.json({ data: updatedEvent }, { status: 200 });
 }
 
+/**
+ * Brisanje dogadjaja
+ * @description Brise dogadjaj po identifikatoru.
+ * @tag Dogadjaji
+ * @auth apikey
+ * @pathParams eventPathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -136,13 +161,14 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = eventIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID dogadjaja", 400, parsedId.error.flatten());
+  const parsedParams = eventPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID dogadjaja", 400, parsedParams.error.flatten());
   }
+  const eventId = parsedParams.data.id;
 
   const existingEvent = await db.query.calendarEvents.findFirst({
-    where: eq(calendarEvents.id, parsedId.data),
+    where: eq(calendarEvents.id, eventId),
     columns: {
       id: true,
       userId: true,
@@ -166,7 +192,7 @@ export async function DELETE(
 
   const [deletedEvent] = await db
     .delete(calendarEvents)
-    .where(eq(calendarEvents.id, parsedId.data))
+    .where(eq(calendarEvents.id, eventId))
     .returning({ id: calendarEvents.id });
 
   if (!deletedEvent) {

@@ -12,6 +12,9 @@ import {
 } from "@/lib/api-utils";
 
 const noteIdSchema = z.string().uuid();
+const notePathParamsSchema = z.object({
+  id: noteIdSchema,
+});
 
 const updateNoteSchema = z
   .object({
@@ -24,6 +27,17 @@ const updateNoteSchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Izmena beleske
+ * @description Menja postojecu belesku po identifikatoru.
+ * @tag Beleske
+ * @auth apikey
+ * @pathParams notePathParamsSchema
+ * @body updateNoteSchema
+ * @response 200:OpenApiNoteResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -34,13 +48,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = noteIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID beleske", 400, parsedId.error.flatten());
+  const parsedParams = notePathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID beleske", 400, parsedParams.error.flatten());
   }
+  const noteId = parsedParams.data.id;
 
   const existingNote = await db.query.notes.findFirst({
-    where: eq(notes.id, parsedId.data),
+    where: eq(notes.id, noteId),
     columns: {
       id: true,
       userId: true,
@@ -96,7 +111,7 @@ export async function PATCH(
       categoryId: input.categoryId,
       pinned: input.pinned,
     })
-    .where(eq(notes.id, parsedId.data))
+    .where(eq(notes.id, noteId))
     .returning();
 
   if (!updatedNote) {
@@ -106,6 +121,16 @@ export async function PATCH(
   return NextResponse.json({ data: updatedNote }, { status: 200 });
 }
 
+/**
+ * Brisanje beleske
+ * @description Brise belesku po identifikatoru.
+ * @tag Beleske
+ * @auth apikey
+ * @pathParams notePathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -116,13 +141,14 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = noteIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID beleske", 400, parsedId.error.flatten());
+  const parsedParams = notePathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID beleske", 400, parsedParams.error.flatten());
   }
+  const noteId = parsedParams.data.id;
 
   const existingNote = await db.query.notes.findFirst({
-    where: eq(notes.id, parsedId.data),
+    where: eq(notes.id, noteId),
     columns: {
       id: true,
       userId: true,
@@ -147,7 +173,7 @@ export async function DELETE(
 
   const [deletedNote] = await db
     .delete(notes)
-    .where(eq(notes.id, parsedId.data))
+    .where(eq(notes.id, noteId))
     .returning({ id: notes.id });
 
   if (!deletedNote) {

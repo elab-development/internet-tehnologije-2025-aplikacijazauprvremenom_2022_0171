@@ -16,11 +16,20 @@ const createListSchema = z.object({
   description: z.string().trim().max(5000).nullable().optional(),
 });
 
-const listQuerySchema = z.object({
+const listListsQuerySchema = z.object({
   userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
 });
 
+/**
+ * Lista task listi
+ * @description Vraca sve liste za ulogovanog korisnika ili timskog korisnika kada je dozvoljeno.
+ * @tag Liste
+ * @auth apikey
+ * @params listListsQuerySchema
+ * @response 200:OpenApiListsListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -28,7 +37,7 @@ export async function GET(request: NextRequest) {
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
-  const parsedQuery = listQuerySchema.safeParse(search);
+  const parsedQuery = listListsQuerySchema.safeParse(search);
 
   if (!parsedQuery.success) {
     return jsonError("Neispravni\ parametri\ upita", 400, parsedQuery.error.flatten());
@@ -64,6 +73,15 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ data: lists }, { status: 200 });
 }
 
+/**
+ * Kreiranje liste
+ * @description Kreira novu listu zadataka.
+ * @tag Liste
+ * @auth apikey
+ * @body createListSchema
+ * @response 201:OpenApiListResponseSchema
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {

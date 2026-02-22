@@ -14,6 +14,15 @@ function jsonError(message: string, status: number, details?: unknown) {
   return NextResponse.json({ error: { message, details } }, { status });
 }
 
+/**
+ * Lista korisnika za admin panel
+ * @description Vraca korisnike i menadzerske informacije za administraciju sistema.
+ * @tag Admin
+ * @auth apikey
+ * @params listUsersQuerySchema
+ * @response 200:OpenApiAdminUsersListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const adminGuard = await requireAdmin(request);
   if (!adminGuard.ok) {
