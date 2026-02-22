@@ -7,20 +7,25 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3000/api",
+      "url": "http://localhost:3000",
       "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
     }
   ],
   "components": {
     "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "better-auth.session_token"
       }
     }
   },
-  "defaultResponseSet": "common",
+  "defaultResponseSet": "auth",
   "responseSets": {
     "common": [
       "400",
@@ -42,12 +47,17 @@
       "type": "object",
       "properties": {
         "error": {
-          "type": "string",
-          "example": "{{ERROR_MESSAGE}}"
-        },
-        "code": {
-          "type": "string",
-          "example": "{{ERROR_CODE}}"
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "example": "{{ERROR_MESSAGE}}"
+            },
+            "details": {
+              "type": "object",
+              "nullable": true
+            }
+          }
         }
       }
     },
@@ -55,49 +65,44 @@
       "400": {
         "description": "Bad Request",
         "variables": {
-          "ERROR_MESSAGE": "Invalid request parameters",
-          "ERROR_CODE": "BAD_REQUEST"
+          "ERROR_MESSAGE": "Invalid request parameters"
         }
       },
       "401": {
         "description": "Unauthorized",
         "variables": {
-          "ERROR_MESSAGE": "Authentication required",
-          "ERROR_CODE": "UNAUTHORIZED"
+          "ERROR_MESSAGE": "Authentication required"
         }
       },
       "403": {
         "description": "Forbidden",
         "variables": {
-          "ERROR_MESSAGE": "Access denied",
-          "ERROR_CODE": "FORBIDDEN"
+          "ERROR_MESSAGE": "Access denied"
         }
       },
       "404": {
         "description": "Not Found",
         "variables": {
-          "ERROR_MESSAGE": "Resource not found",
-          "ERROR_CODE": "NOT_FOUND"
+          "ERROR_MESSAGE": "Resource not found"
         }
       },
       "409": {
         "description": "Conflict",
         "variables": {
-          "ERROR_MESSAGE": "Resource already exists",
-          "ERROR_CODE": "CONFLICT"
+          "ERROR_MESSAGE": "Resource already exists"
         }
       },
       "500": {
         "description": "Internal Server Error",
         "variables": {
-          "ERROR_MESSAGE": "An unexpected error occurred",
-          "ERROR_CODE": "INTERNAL_ERROR"
+          "ERROR_MESSAGE": "An unexpected error occurred"
         }
       }
     }
   },
-  "apiDir": "./src/app/api",
-  "schemaDir": "./src",
+  "apiDir": "./app",
+  "routerType": "app",
+  "schemaDir": "./app",
   "schemaType": "zod",
   "schemaFiles": [],
   "docsUrl": "api-docs",
@@ -105,6 +110,9 @@
   "outputFile": "openapi.json",
   "outputDir": "./public",
   "includeOpenApiRoutes": false,
-  "ignoreRoutes": [],
+  "ignoreRoutes": [
+    "/api/auth/*",
+    "/api/reminders/dispatch"
+  ],
   "debug": false
 }

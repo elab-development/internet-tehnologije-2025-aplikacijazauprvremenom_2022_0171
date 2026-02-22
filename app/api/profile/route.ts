@@ -14,6 +14,15 @@ const updateProfileSchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Profil korisnika
+ * @description Vraca profil trenutno ulogovanog korisnika.
+ * @tag Profil
+ * @auth apikey
+ * @response 200:OpenApiProfileResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const userGuard = await requireUserId(request);
   if (!userGuard.ok) {
@@ -40,6 +49,16 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ data: profile }, { status: 200 });
 }
 
+/**
+ * Izmena profila korisnika
+ * @description Menja ime i/ili email trenutno ulogovanog korisnika.
+ * @tag Profil
+ * @auth apikey
+ * @body updateProfileSchema
+ * @response 200:OpenApiProfileResponseSchema
+ * @add 404,409
+ * @openapi
+ */
 export async function PATCH(request: NextRequest) {
   const userGuard = await requireUserId(request);
   if (!userGuard.ok) {

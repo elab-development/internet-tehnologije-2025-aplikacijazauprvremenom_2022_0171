@@ -12,6 +12,9 @@ import {
 import { userRoleValues } from "@/lib/roles";
 
 const userIdSchema = z.string().trim().min(1);
+const adminUserPathParamsSchema = z.object({
+  id: userIdSchema,
+});
 
 const updateUserSchema = z
   .object({
@@ -31,6 +34,17 @@ function toApiError(error: unknown) {
   return jsonError("Interna greska servera", 500);
 }
 
+/**
+ * Izmena korisnika (admin)
+ * @description Menja ulogu, status aktivnosti i dodelu menadzera za korisnika.
+ * @tag Admin
+ * @auth apikey
+ * @pathParams adminUserPathParamsSchema
+ * @body updateUserSchema
+ * @response 200:OpenApiAdminUserResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -41,9 +55,9 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = userIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID korisnika", 400, parsedId.error.flatten());
+  const parsedParams = adminUserPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID korisnika", 400, parsedParams.error.flatten());
   }
 
   const body = await parseJsonBody(request);
@@ -57,7 +71,7 @@ export async function PATCH(
   }
 
   const input = parsedBody.data;
-  const targetUserId = parsedId.data;
+  const targetUserId = parsedParams.data.id;
 
   if (targetUserId === adminGuard.adminId && input.role && input.role !== "admin") {
     return jsonError("Administrator ne moze da ukloni sopstvenu admin ulogu", 400);
@@ -214,6 +228,16 @@ export async function PATCH(
   }
 }
 
+/**
+ * Brisanje korisnika (admin)
+ * @description Brise korisnicki nalog iz sistema.
+ * @tag Admin
+ * @auth apikey
+ * @pathParams adminUserPathParamsSchema
+ * @response 200:OpenApiDeletedAdminUserResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -224,12 +248,12 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = userIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID korisnika", 400, parsedId.error.flatten());
+  const parsedParams = adminUserPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID korisnika", 400, parsedParams.error.flatten());
   }
 
-  const targetUserId = parsedId.data;
+  const targetUserId = parsedParams.data.id;
   if (targetUserId === adminGuard.adminId) {
     return jsonError("Administrator ne moze da obrise sopstveni nalog", 400);
   }

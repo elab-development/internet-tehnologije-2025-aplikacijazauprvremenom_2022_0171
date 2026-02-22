@@ -11,6 +11,9 @@ import {
 } from "@/lib/api-utils";
 
 const listIdSchema = z.string().uuid();
+const listPathParamsSchema = z.object({
+  id: listIdSchema,
+});
 
 const updateListSchema = z
   .object({
@@ -21,6 +24,17 @@ const updateListSchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Izmena liste
+ * @description Menja naslov i/ili opis liste.
+ * @tag Liste
+ * @auth apikey
+ * @pathParams listPathParamsSchema
+ * @body updateListSchema
+ * @response 200:OpenApiListResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -31,13 +45,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = listIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID liste", 400, parsedId.error.flatten());
+  const parsedParams = listPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID liste", 400, parsedParams.error.flatten());
   }
+  const listId = parsedParams.data.id;
 
   const existingList = await db.query.todoLists.findFirst({
-    where: eq(todoLists.id, parsedId.data),
+    where: eq(todoLists.id, listId),
     columns: {
       id: true,
       userId: true,
@@ -70,7 +85,7 @@ export async function PATCH(
       title: input.title,
       description: input.description,
     })
-    .where(eq(todoLists.id, parsedId.data))
+    .where(eq(todoLists.id, listId))
     .returning({
       id: todoLists.id,
       title: todoLists.title,
@@ -86,6 +101,16 @@ export async function PATCH(
   return NextResponse.json({ data: updatedList }, { status: 200 });
 }
 
+/**
+ * Brisanje liste
+ * @description Brise listu po identifikatoru.
+ * @tag Liste
+ * @auth apikey
+ * @pathParams listPathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -96,13 +121,14 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = listIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID liste", 400, parsedId.error.flatten());
+  const parsedParams = listPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID liste", 400, parsedParams.error.flatten());
   }
+  const listId = parsedParams.data.id;
 
   const existingList = await db.query.todoLists.findFirst({
-    where: eq(todoLists.id, parsedId.data),
+    where: eq(todoLists.id, listId),
     columns: {
       id: true,
       userId: true,
@@ -119,7 +145,7 @@ export async function DELETE(
 
   const [deletedList] = await db
     .delete(todoLists)
-    .where(eq(todoLists.id, parsedId.data))
+    .where(eq(todoLists.id, listId))
     .returning({ id: todoLists.id });
 
   if (!deletedList) {

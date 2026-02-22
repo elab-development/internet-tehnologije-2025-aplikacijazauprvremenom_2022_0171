@@ -12,6 +12,9 @@ import {
 } from "@/lib/api-utils";
 
 const reminderIdSchema = z.string().uuid();
+const reminderPathParamsSchema = z.object({
+  id: reminderIdSchema,
+});
 
 const updateReminderSchema = z
   .object({
@@ -26,6 +29,17 @@ const updateReminderSchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Izmena podsetnika
+ * @description Menja postojeci podsetnik po identifikatoru.
+ * @tag Podsetnici
+ * @auth apikey
+ * @pathParams reminderPathParamsSchema
+ * @body updateReminderSchema
+ * @response 200:OpenApiReminderResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -36,13 +50,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = reminderIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID podsetnika", 400, parsedId.error.flatten());
+  const parsedParams = reminderPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID podsetnika", 400, parsedParams.error.flatten());
   }
+  const reminderId = parsedParams.data.id;
 
   const existingReminder = await db.query.reminders.findFirst({
-    where: eq(reminders.id, parsedId.data),
+    where: eq(reminders.id, reminderId),
     columns: {
       id: true,
       userId: true,
@@ -127,7 +142,7 @@ export async function PATCH(
       isSent: input.isSent,
       sentAt: input.sentAt === null ? null : input.sentAt ? new Date(input.sentAt) : undefined,
     })
-    .where(eq(reminders.id, parsedId.data))
+    .where(eq(reminders.id, reminderId))
     .returning();
 
   if (!updatedReminder) {
@@ -137,6 +152,16 @@ export async function PATCH(
   return NextResponse.json({ data: updatedReminder }, { status: 200 });
 }
 
+/**
+ * Brisanje podsetnika
+ * @description Brise podsetnik po identifikatoru.
+ * @tag Podsetnici
+ * @auth apikey
+ * @pathParams reminderPathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -147,13 +172,14 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = reminderIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID podsetnika", 400, parsedId.error.flatten());
+  const parsedParams = reminderPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID podsetnika", 400, parsedParams.error.flatten());
   }
+  const reminderId = parsedParams.data.id;
 
   const existingReminder = await db.query.reminders.findFirst({
-    where: eq(reminders.id, parsedId.data),
+    where: eq(reminders.id, reminderId),
     columns: {
       id: true,
       userId: true,
@@ -181,7 +207,7 @@ export async function DELETE(
 
   const [deletedReminder] = await db
     .delete(reminders)
-    .where(eq(reminders.id, parsedId.data))
+    .where(eq(reminders.id, reminderId))
     .returning({ id: reminders.id });
 
   if (!deletedReminder) {

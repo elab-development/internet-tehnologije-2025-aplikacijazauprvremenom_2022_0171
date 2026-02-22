@@ -21,6 +21,15 @@ const createCategorySchema = z.object({
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 
+/**
+ * Lista kategorija
+ * @description Vraca sve kategorije za ulogovanog korisnika ili korisnika iz query parametra ako je pristup dozvoljen.
+ * @tag Kategorije
+ * @auth apikey
+ * @params listCategoriesSchema
+ * @response 200:OpenApiCategoriesListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -65,6 +74,16 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ data: items }, { status: 200 });
 }
 
+/**
+ * Kreiranje kategorije
+ * @description Kreira novu kategoriju za izabranog korisnika.
+ * @tag Kategorije
+ * @auth apikey
+ * @body createCategorySchema
+ * @response 201:OpenApiCategoryResponseSchema
+ * @add 409
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {

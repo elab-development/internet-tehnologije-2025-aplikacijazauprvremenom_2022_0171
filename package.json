@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "openapi:generate": "next-openapi-gen generate",
+    "prebuild": "pnpm run openapi:generate",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
