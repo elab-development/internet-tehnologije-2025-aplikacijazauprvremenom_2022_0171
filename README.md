@@ -181,6 +181,7 @@ App je dostupna na `http://localhost:3000`.
 ```bash
 pnpm dev
 pnpm openapi:generate
+pnpm test
 pnpm build
 pnpm start
 pnpm lint
@@ -246,4 +247,5 @@ Na svaki `push` i `pull_request` pokrece:
 
 1. `pnpm run openapi:generate`
 2. `pnpm lint`
-3. `pnpm build`
+3. `pnpm test`
+4. `pnpm build`
