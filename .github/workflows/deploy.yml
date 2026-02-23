@@ -1,0 +1,102 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "GHCR image tag (default: current commit SHA)"
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy to Cloud VM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
+      DB_ENV_FILE: ${{ secrets.DB_ENV_FILE }}
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH GHCR_USERNAME GHCR_TOKEN DEPLOY_SSH_KEY PROD_ENV_FILE DB_ENV_FILE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image reference
+        id: image
+        run: |
+          set -euo pipefail
+          image_name="ghcr.io/${GITHUB_REPOSITORY,,}"
+          image_tag="${{ inputs.image_tag }}"
+          if [ -z "$image_tag" ]; then
+            image_tag="${GITHUB_SHA}"
+          fi
+          echo "name=$image_name" >> "$GITHUB_OUTPUT"
+          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "ref=$image_name:$image_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare deployment bundle
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy
+          cp docker-compose.prod.yml .deploy/docker-compose.prod.yml
+          cp -R drizzle .deploy/drizzle
+          printf '%s\n' "$PROD_ENV_FILE" > .deploy/.env.production
+          printf '%s\n' "$DB_ENV_FILE" > .deploy/.env.db
+
+      - name: Configure SSH access
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          port="${DEPLOY_PORT:-22}"
+          ssh-keyscan -p "$port" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload bundle to server
+        run: |
+          set -euo pipefail
+          port="${DEPLOY_PORT:-22}"
+          ssh -p "$port" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
+          scp -P "$port" -r \
+            .deploy/docker-compose.prod.yml \
+            .deploy/.env.production \
+            .deploy/.env.db \
+            .deploy/drizzle \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Pull and restart containers
+        run: |
+          set -euo pipefail
+          port="${DEPLOY_PORT:-22}"
+          app_image="${{ steps.image.outputs.ref }}"
+          echo "$GHCR_TOKEN" | ssh -p "$port" "$DEPLOY_USER@$DEPLOY_HOST" "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
+          ssh -p "$port" "$DEPLOY_USER@$DEPLOY_HOST" "APP_IMAGE='$app_image' DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'EOF'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          APP_IMAGE="$APP_IMAGE" docker compose -f docker-compose.prod.yml pull app
+          APP_IMAGE="$APP_IMAGE" docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          docker image prune -f
+          EOF

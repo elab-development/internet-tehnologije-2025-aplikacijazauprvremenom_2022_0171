@@ -309,15 +309,44 @@ ALLOWED_ORIGINS=http://localhost:3000,https://tvoj-domen.com
 CORS_ALLOWED_HEADERS=Content-Type, Authorization, X-Requested-With
 ```
 
-## CI pipeline
+## CI/CD pipeline
 
-GitHub Actions workflow se nalazi u:
+GitHub Actions workflow fajlovi:
 
 - `.github/workflows/ci.yml`
+- `.github/workflows/deploy.yml`
 
-Na svaki `push` i `pull_request` pokrece:
+### CI (automatski na svaki `push` i `pull_request`)
+
+Workflow `ci.yml` pokrece:
 
 1. `pnpm run openapi:generate`
 2. `pnpm lint`
 3. `pnpm test`
 4. `pnpm build`
+5. Docker build image-a
+
+Ako je `push` na `main`, isti workflow radi i push image-a na GHCR:
+
+- `ghcr.io/<owner>/<repo>:<commit-sha>`
+- `ghcr.io/<owner>/<repo>:latest`
+
+### CD (po potrebi, manualno)
+
+Workflow `deploy.yml` se pokrece kroz `workflow_dispatch` i:
+
+1. povlaci image tag (default je trenutni commit SHA),
+2. upload-uje `docker-compose.prod.yml`, `drizzle/`, `.env.production`, `.env.db` na server,
+3. radi `docker compose pull` i `docker compose up -d`.
+
+Potrebni GitHub Secrets za deploy:
+
+- `DEPLOY_HOST`
+- `DEPLOY_PORT` (opciono, podrazumevano `22`)
+- `DEPLOY_USER`
+- `DEPLOY_SSH_KEY`
+- `DEPLOY_PATH` (npr. `/opt/time-manager`)
+- `GHCR_USERNAME`
+- `GHCR_TOKEN` (PAT sa `read:packages`)
+- `PROD_ENV_FILE` (ceo sadrzaj `.env.production`)
+- `DB_ENV_FILE` (ceo sadrzaj `.env.db`)
