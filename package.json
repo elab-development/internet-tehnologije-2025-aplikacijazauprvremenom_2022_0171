@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "openapi:generate": "next-openapi-gen generate",
+    "db:migrate": "drizzle-kit migrate",
     "prebuild": "pnpm run openapi:generate",
     "build": "next build --webpack",
     "start": "next start",

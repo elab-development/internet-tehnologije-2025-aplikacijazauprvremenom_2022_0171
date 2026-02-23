@@ -176,11 +176,83 @@ pnpm dev
 
 App je dostupna na `http://localhost:3000`.
 
+## Pokretanje preko Docker-a (Docker + docker-compose)
+
+### 1. Priprema env promenljivih
+
+Kopiraj template fajlove:
+
+```bash
+cp .env.production.example .env.production
+cp .env.db.example .env.db
+```
+
+`.env.production` je za Next.js/better-auth varijable:
+
+```env
+BETTER_AUTH_BASE_URL=http://localhost:3000
+BETTER_AUTH_SECRET=your-secret
+ALLOWED_ORIGINS=http://localhost:3000
+```
+
+`.env.db` je za PostgreSQL servis:
+
+```env
+POSTGRES_DB=iteh_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=iteh
+DATABASE_URL=postgresql://postgres:iteh@db:5432/iteh_db
+```
+
+Ako koristis eksterni DB servis, postavi `DATABASE_URL` u `.env.production` (override preko `.env.db` vrednosti).
+`/.env.production` i `/.env.db` su ignorisani kroz `.gitignore`; za deljenje repozitorijuma koriste se samo `*.example` fajlovi.
+
+### 2. Podizanje aplikacije i baze
+
+```bash
+docker compose up --build
+```
+
+Sta se desava pri podizanju:
+
+1. Pokrece se `postgres` servis sa perzistentnim volume-om.
+2. SQL migracije iz `drizzle/*.sql` se automatski izvrsavaju preko Postgres init mehanizma (`/docker-entrypoint-initdb.d`) pri prvom podizanju baze.
+3. Nakon sto je baza zdrava, startuje `app` servis.
+
+Aplikacija: `http://localhost:3000`
+
+Napomena: Postgres init skripte se izvrsavaju samo pri prvom kreiranju baze (prazan volume).  
+Ako promenis migracije i zelis ponovnu inicijalizaciju lokalno, obrisi volume i podigni ponovo:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### 3. Opcioni Adminer (UI za bazu)
+
+`adminer` servis je stavljen pod `tools` profile da ne bude obavezan u svakom startu:
+
+```bash
+docker compose --profile tools up --build
+```
+
+Adminer UI: `http://localhost:8080`
+
+Login parametri:
+
+- `System`: `PostgreSQL`
+- `Server`: `db`
+- `Username`: vrednost iz `POSTGRES_USER`
+- `Password`: vrednost iz `POSTGRES_PASSWORD`
+- `Database`: vrednost iz `POSTGRES_DB`
+
 ## Dostupne skripte
 
 ```bash
 pnpm dev
 pnpm openapi:generate
+pnpm db:migrate
 pnpm test
 pnpm build
 pnpm start

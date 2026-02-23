@@ -38,11 +38,15 @@ FROM node:${NODE_VERSION} AS builder
 # Set working directory
 WORKDIR /app
 
+# Build-time env is loaded from .env.production via a bind mount from
+# build context so values are available only during this RUN command.
+
 # Copy project dependencies from dependencies stage
 COPY --from=dependencies /app/node_modules ./node_modules
 
-# Copy application source code
-COPY . .
+# Copy application source code, excluding runtime env file so it never lands
+# in image layers.
+COPY --exclude=.env.production . .
 
 ENV NODE_ENV=production
 
@@ -52,7 +56,9 @@ ENV NODE_ENV=production
 # ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build Next.js application
-RUN --mount=type=cache,target=/app/.next/cache \
+RUN --mount=type=bind,source=.env.production,target=/run/build.env,ro \
+    --mount=type=cache,target=/app/.next/cache \
+  set -a; . /run/build.env; set +a; \
   if [ -f package-lock.json ]; then \
     npm run build; \
   elif [ -f yarn.lock ]; then \
