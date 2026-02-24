@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+/public/openapi.json
 
 # production
 /build
@@ -30,8 +31,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files, all except .env.example
 .env*
+!.env.example
+!.env.production.example
+!.env.db.example
 
 # vercel
 .vercel

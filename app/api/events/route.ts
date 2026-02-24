@@ -11,14 +11,14 @@ import {
 } from "@/lib/api-utils";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
-const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
+const eventsQueryDateTimeSchema = z.string().datetime({ offset: true, local: true });
 
 const listEventsSchema = z.object({
   userId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(255).optional(),
   taskId: z.string().uuid().optional(),
-  startsFrom: queryDateTimeSchema.optional(),
-  startsTo: queryDateTimeSchema.optional(),
+  startsFrom: eventsQueryDateTimeSchema.optional(),
+  startsTo: eventsQueryDateTimeSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(QUERY_LIMITS.events.max).optional(),
 });
@@ -38,6 +38,15 @@ const createEventSchema = z
     path: ["endsAt"],
   });
 
+/**
+ * Lista dogadjaja
+ * @description Vraca dogadjaje za izabrani vremenski opseg, sa filterima i paginacijom.
+ * @tag Dogadjaji
+ * @auth apikey
+ * @params listEventsSchema
+ * @response 200:OpenApiEventsListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -125,6 +134,15 @@ export async function GET(request: NextRequest) {
   );
 }
 
+/**
+ * Kreiranje dogadjaja
+ * @description Kreira novi kalendarski dogadjaj.
+ * @tag Dogadjaji
+ * @auth apikey
+ * @body createEventSchema
+ * @response 201:OpenApiEventResponseSchema
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {

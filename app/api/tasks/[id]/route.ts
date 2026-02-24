@@ -20,6 +20,9 @@ const priorityValues = ["low", "medium", "high"] as const;
 const statusValues = ["not_started", "in_progress", "done"] as const;
 
 const taskIdSchema = z.string().uuid();
+const taskPathParamsSchema = z.object({
+  id: taskIdSchema,
+});
 
 const updateTaskSchema = z
   .object({
@@ -45,6 +48,17 @@ function toApiError(error: unknown) {
   return jsonError("Interna greska servera", 500);
 }
 
+/**
+ * Izmena zadatka
+ * @description Menja zadatak po ID-u, ukljucujuci status-only scenario.
+ * @tag Zadaci
+ * @auth apikey
+ * @pathParams taskPathParamsSchema
+ * @body updateTaskSchema
+ * @response 200:OpenApiTaskResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -55,13 +69,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = taskIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID zadatka", 400, parsedId.error.flatten());
+  const parsedParams = taskPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID zadatka", 400, parsedParams.error.flatten());
   }
+  const taskId = parsedParams.data.id;
 
   const existingTask = await db.query.tasks.findFirst({
-    where: eq(tasks.id, parsedId.data),
+    where: eq(tasks.id, taskId),
     columns: {
       id: true,
       userId: true,
@@ -175,7 +190,7 @@ export async function PATCH(
     const [updatedTask] = await db
       .update(tasks)
       .set(updateValues)
-      .where(eq(tasks.id, parsedId.data))
+      .where(eq(tasks.id, taskId))
       .returning();
 
     if (!updatedTask) {
@@ -188,6 +203,16 @@ export async function PATCH(
   }
 }
 
+/**
+ * Brisanje zadatka
+ * @description Brise zadatak po identifikatoru.
+ * @tag Zadaci
+ * @auth apikey
+ * @pathParams taskPathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -198,15 +223,16 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = taskIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID zadatka", 400, parsedId.error.flatten());
+  const parsedParams = taskPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID zadatka", 400, parsedParams.error.flatten());
   }
+  const taskId = parsedParams.data.id;
 
   try {
     const deleted = await deleteTask({
       actor: actorGuard.actor,
-      taskId: parsedId.data,
+      taskId,
     });
 
     return NextResponse.json({ data: deleted }, { status: 200 });

@@ -12,6 +12,9 @@ import {
 } from "@/lib/api-utils";
 
 const categoryIdSchema = z.string().uuid();
+const categoryPathParamsSchema = z.object({
+  id: categoryIdSchema,
+});
 
 const updateCategorySchema = z
   .object({
@@ -22,6 +25,17 @@ const updateCategorySchema = z
     message: "Potrebno je bar jedno polje za izmenu",
   });
 
+/**
+ * Izmena kategorije
+ * @description Menja naziv i/ili boju postojece kategorije.
+ * @tag Kategorije
+ * @auth apikey
+ * @pathParams categoryPathParamsSchema
+ * @body updateCategorySchema
+ * @response 200:OpenApiCategoryResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -32,13 +46,14 @@ export async function PATCH(
   }
 
   const params = await context.params;
-  const parsedId = categoryIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID kategorije", 400, parsedId.error.flatten());
+  const parsedParams = categoryPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID kategorije", 400, parsedParams.error.flatten());
   }
+  const categoryId = parsedParams.data.id;
 
   const existingCategory = await db.query.categories.findFirst({
-    where: eq(categories.id, parsedId.data),
+    where: eq(categories.id, categoryId),
     columns: {
       id: true,
       userId: true,
@@ -83,7 +98,7 @@ export async function PATCH(
       name: input.name,
       color: input.color,
     })
-    .where(eq(categories.id, parsedId.data))
+    .where(eq(categories.id, categoryId))
     .returning({
       id: categories.id,
       userId: categories.userId,
@@ -101,6 +116,16 @@ export async function PATCH(
   return NextResponse.json({ data: updatedCategory }, { status: 200 });
 }
 
+/**
+ * Brisanje kategorije
+ * @description Brise kategoriju po identifikatoru.
+ * @tag Kategorije
+ * @auth apikey
+ * @pathParams categoryPathParamsSchema
+ * @response 200:OpenApiEntityIdResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -111,13 +136,14 @@ export async function DELETE(
   }
 
   const params = await context.params;
-  const parsedId = categoryIdSchema.safeParse(params.id);
-  if (!parsedId.success) {
-    return jsonError("Neispravan ID kategorije", 400, parsedId.error.flatten());
+  const parsedParams = categoryPathParamsSchema.safeParse(params);
+  if (!parsedParams.success) {
+    return jsonError("Neispravan ID kategorije", 400, parsedParams.error.flatten());
   }
+  const categoryId = parsedParams.data.id;
 
   const existingCategory = await db.query.categories.findFirst({
-    where: eq(categories.id, parsedId.data),
+    where: eq(categories.id, categoryId),
     columns: {
       id: true,
       userId: true,
@@ -146,7 +172,7 @@ export async function DELETE(
 
   const [deletedCategory] = await db
     .delete(categories)
-    .where(eq(categories.id, parsedId.data))
+    .where(eq(categories.id, categoryId))
     .returning({ id: categories.id });
 
   if (!deletedCategory) {

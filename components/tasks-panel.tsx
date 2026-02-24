@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TaskStatusGoogleChart } from "@/components/task-status-google-chart";
 import { SectionLoader } from "@/components/ui/section-loader";
 import { Textarea } from "@/components/ui/textarea";
 import { QUERY_LIMITS } from "@/lib/query-limits";
@@ -123,6 +124,12 @@ const taskStatusClassMap: Record<
   },
 };
 
+const emptyTaskStatusCounts: Record<TaskStatus, number> = {
+  not_started: 0,
+  in_progress: 0,
+  done: 0,
+};
+
 function emptyTaskForm() {
   return {
     title: "",
@@ -187,7 +194,9 @@ export function TasksPanel({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTaskStatusLoading, setIsTaskStatusLoading] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+  const [taskStatusCounts, setTaskStatusCounts] = useState<Record<TaskStatus, number>>(emptyTaskStatusCounts);
   const tasksPerPage = QUERY_LIMITS.tasks.default;
 
   useEffect(() => {
@@ -276,15 +285,59 @@ export function TasksPanel({
     tasksPerPage,
   ]);
 
+  const fetchTaskStatusCounts = useCallback(async () => {
+    const nextCounts: Record<TaskStatus, number> = {
+      not_started: 0,
+      in_progress: 0,
+      done: 0,
+    };
+
+    setIsTaskStatusLoading(true);
+
+    try {
+      const pageSize = QUERY_LIMITS.tasks.max;
+      let page = 1;
+      let totalPages = 1;
+
+      while (page <= totalPages) {
+        const params = new URLSearchParams({
+          userId: targetUserId,
+          page: String(page),
+          limit: String(pageSize),
+        });
+
+        const response = await fetch(`/api/tasks?${params.toString()}`);
+        const payload = (await response.json()) as ApiResponse<Task[]>;
+        if (!response.ok) {
+          throw new Error(payload.error?.message ?? "Neuspesno ucitavanje statistike taskova");
+        }
+
+        for (const task of payload.data ?? []) {
+          nextCounts[task.status] += 1;
+        }
+
+        totalPages = payload.meta?.totalPages ?? 1;
+        page += 1;
+      }
+
+      setTaskStatusCounts(nextCounts);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju statusa taskova");
+      setTaskStatusCounts(emptyTaskStatusCounts);
+    } finally {
+      setIsTaskStatusLoading(false);
+    }
+  }, [targetUserId]);
+
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([fetchLists(), fetchCategories()]);
+        await Promise.all([fetchLists(), fetchCategories(), fetchTaskStatusCounts()]);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Greska pri ucitavanju podataka");
       }
     })();
-  }, [fetchCategories, fetchLists]);
+  }, [fetchCategories, fetchLists, fetchTaskStatusCounts]);
 
   useEffect(() => {
     void fetchTasks();
@@ -301,7 +354,7 @@ export function TasksPanel({
 
   async function refreshAll() {
     try {
-      await Promise.all([fetchLists(), fetchCategories(), fetchTasks()]);
+      await Promise.all([fetchLists(), fetchCategories(), fetchTasks(), fetchTaskStatusCounts()]);
       toast.success("Modul zadataka je osvezen.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri osvezavanju");
@@ -397,7 +450,7 @@ export function TasksPanel({
         setTaskEditor(null);
       }
       toast.success("Lista je obrisana.");
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchTaskStatusCounts()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri brisanju liste");
     } finally {
@@ -446,7 +499,7 @@ export function TasksPanel({
 
       setTaskForm(emptyTaskForm());
       toast.success("Zadatak je dodat.");
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchTaskStatusCounts()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri kreiranju zadatka");
     } finally {
@@ -500,7 +553,7 @@ export function TasksPanel({
 
       setTaskEditor(null);
       toast.success("Zadatak je izmenjen.");
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchTaskStatusCounts()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri izmeni zadatka");
     } finally {
@@ -524,7 +577,7 @@ export function TasksPanel({
         throw new Error(payload.error?.message ?? "Neuspesna promena statusa");
       }
 
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchTaskStatusCounts()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri promeni statusa");
     } finally {
@@ -545,7 +598,7 @@ export function TasksPanel({
       if (taskEditor?.id === task.id) {
         setTaskEditor(null);
       }
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchTaskStatusCounts()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri brisanju zadatka");
     } finally {
@@ -690,7 +743,22 @@ export function TasksPanel({
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
+          <Card className="notion-surface min-w-0 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+            <CardHeader>
+              <CardTitle>Status taskova (Google Charts)</CardTitle>
+              <CardDescription>
+                Brz pregled taskova korisnika <span className="font-medium">{targetUserName}</span> po statusu.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="min-w-0 overflow-hidden">
+              <TaskStatusGoogleChart
+                counts={taskStatusCounts}
+                isLoading={isTaskStatusLoading}
+              />
+            </CardContent>
+          </Card>
+
           {!selectedList ? (
             <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
               <CardHeader>

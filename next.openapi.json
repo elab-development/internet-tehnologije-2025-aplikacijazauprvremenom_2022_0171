@@ -1,0 +1,118 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "API Documentation",
+    "version": "1.0.0",
+    "description": "This is the OpenAPI specification for your project."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "better-auth.session_token"
+      }
+    }
+  },
+  "defaultResponseSet": "auth",
+  "responseSets": {
+    "common": [
+      "400",
+      "500"
+    ],
+    "auth": [
+      "400",
+      "401",
+      "403",
+      "500"
+    ],
+    "public": [
+      "400",
+      "500"
+    ]
+  },
+  "errorConfig": {
+    "template": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "example": "{{ERROR_MESSAGE}}"
+            },
+            "details": {
+              "type": "object",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "codes": {
+      "400": {
+        "description": "Bad Request",
+        "variables": {
+          "ERROR_MESSAGE": "Invalid request parameters"
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "variables": {
+          "ERROR_MESSAGE": "Authentication required"
+        }
+      },
+      "403": {
+        "description": "Forbidden",
+        "variables": {
+          "ERROR_MESSAGE": "Access denied"
+        }
+      },
+      "404": {
+        "description": "Not Found",
+        "variables": {
+          "ERROR_MESSAGE": "Resource not found"
+        }
+      },
+      "409": {
+        "description": "Conflict",
+        "variables": {
+          "ERROR_MESSAGE": "Resource already exists"
+        }
+      },
+      "500": {
+        "description": "Internal Server Error",
+        "variables": {
+          "ERROR_MESSAGE": "An unexpected error occurred"
+        }
+      }
+    }
+  },
+  "apiDir": "./app",
+  "routerType": "app",
+  "schemaDir": "./app",
+  "schemaType": "zod",
+  "schemaFiles": [],
+  "docsUrl": "api-docs",
+  "ui": "scalar",
+  "outputFile": "openapi.json",
+  "outputDir": "./public",
+  "includeOpenApiRoutes": false,
+  "ignoreRoutes": [
+    "/api/auth/*",
+    "/api/reminders/dispatch"
+  ],
+  "debug": false
+}

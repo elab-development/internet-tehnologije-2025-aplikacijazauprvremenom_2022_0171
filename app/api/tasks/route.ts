@@ -17,17 +17,17 @@ import { QUERY_LIMITS } from "@/lib/query-limits";
 
 const priorityValues = ["low", "medium", "high"] as const;
 const statusValues = ["not_started", "in_progress", "done"] as const;
-const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
+const tasksQueryDateTimeSchema = z.string().datetime({ offset: true, local: true });
 
-const listQuerySchema = z.object({
+const listTasksQuerySchema = z.object({
   userId: z.string().trim().min(1).optional(),
   listId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
   status: z.enum(statusValues).optional(),
   priority: z.enum(priorityValues).optional(),
   q: z.string().trim().min(1).max(255).optional(),
-  dueFrom: queryDateTimeSchema.optional(),
-  dueTo: queryDateTimeSchema.optional(),
+  dueFrom: tasksQueryDateTimeSchema.optional(),
+  dueTo: tasksQueryDateTimeSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(QUERY_LIMITS.tasks.max).optional(),
 });
@@ -53,6 +53,15 @@ function toApiError(error: unknown) {
   return jsonError("Interna\ greska\ servera", 500);
 }
 
+/**
+ * Lista zadataka
+ * @description Vraca zadatke sa podrskom za filtere i paginaciju.
+ * @tag Zadaci
+ * @auth apikey
+ * @params listTasksQuerySchema
+ * @response 200:OpenApiTasksListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -60,7 +69,7 @@ export async function GET(request: NextRequest) {
   }
 
   const search = Object.fromEntries(request.nextUrl.searchParams.entries());
-  const parsedQuery = listQuerySchema.safeParse(search);
+  const parsedQuery = listTasksQuerySchema.safeParse(search);
 
   if (!parsedQuery.success) {
     return jsonError("Neispravni\ parametri\ upita", 400, parsedQuery.error.flatten());
@@ -134,6 +143,15 @@ export async function GET(request: NextRequest) {
   );
 }
 
+/**
+ * Kreiranje zadatka
+ * @description Kreira novi zadatak za sebe ili timskog korisnika ako je dozvoljeno.
+ * @tag Zadaci
+ * @auth apikey
+ * @body createTaskSchema
+ * @response 201:OpenApiTaskResponseSchema
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {

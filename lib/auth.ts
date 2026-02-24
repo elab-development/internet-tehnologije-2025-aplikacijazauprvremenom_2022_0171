@@ -3,9 +3,15 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/db";
 
+const trustedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter((entry) => entry.length > 0);
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_BASE_URL!,
   basePath: "/api/auth",
+  trustedOrigins: trustedOrigins.length ? trustedOrigins : undefined,
 
   database: drizzleAdapter(db, {
     provider: "pg",

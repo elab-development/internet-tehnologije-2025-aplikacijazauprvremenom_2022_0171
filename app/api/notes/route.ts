@@ -28,6 +28,15 @@ const createNoteSchema = z.object({
   pinned: z.boolean().optional(),
 });
 
+/**
+ * Lista beleski
+ * @description Vraca beleske sa filterima i paginacijom.
+ * @tag Beleske
+ * @auth apikey
+ * @params listNotesSchema
+ * @response 200:OpenApiNotesListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -109,6 +118,15 @@ export async function GET(request: NextRequest) {
   );
 }
 
+/**
+ * Kreiranje beleske
+ * @description Kreira novu belesku za izabranog korisnika.
+ * @tag Beleske
+ * @auth apikey
+ * @body createNoteSchema
+ * @response 201:OpenApiNoteResponseSchema
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {

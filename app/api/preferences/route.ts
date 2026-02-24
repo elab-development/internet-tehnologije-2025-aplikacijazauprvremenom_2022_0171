@@ -45,6 +45,14 @@ async function getOrCreatePreferences(userId: string) {
   return created;
 }
 
+/**
+ * Podesavanja korisnika
+ * @description Vraca podesavanja trenutno ulogovanog korisnika.
+ * @tag Podesavanja
+ * @auth apikey
+ * @response 200:OpenApiPreferencesResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const userGuard = await requireUserId(request);
   if (!userGuard.ok) {
@@ -75,6 +83,16 @@ export async function GET(request: NextRequest) {
   return response;
 }
 
+/**
+ * Izmena podesavanja korisnika
+ * @description Menja temu, gustinu prikaza i vremensku zonu trenutno ulogovanog korisnika.
+ * @tag Podesavanja
+ * @auth apikey
+ * @body updatePreferencesSchema
+ * @response 200:OpenApiPreferencesResponseSchema
+ * @add 404
+ * @openapi
+ */
 export async function PATCH(request: NextRequest) {
   const userGuard = await requireUserId(request);
   if (!userGuard.ok) {

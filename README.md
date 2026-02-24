@@ -112,6 +112,43 @@ Glavne rute:
 
 Napomena: vecina list endpointa podrzava query filtere i paginaciju (`page`, `limit`, dodatni filteri po modulu).
 
+## API dokumentacija (OpenAPI + Scalar)
+
+OpenAPI specifikacija se generise alatom `next-openapi-gen`, a interaktivna dokumentacija je dostupna preko Scalar UI na:
+
+- `http://localhost:3000/api-docs`
+
+Generisanje specifikacije:
+
+```bash
+pnpm run openapi:generate
+```
+
+Generisani fajl:
+
+- `public/openapi.json` (ne commituje se, build ga generise automatski)
+
+Autentikacija u dokumentaciji:
+
+- API koristi cookie session preko better-auth
+- security schema je podesena na cookie `better-auth.session_token`
+
+Rute iskljucene iz javne dokumentacije:
+
+- `/api/auth/*`
+- `/api/reminders/dispatch`
+
+## Eksterni API-ji
+
+Projekat koristi dva eksterna API-ja u globalnom footeru:
+
+1. Liturgical Calendar API (`http://calapi.inadiutorium.cz/api-doc`)
+   - endpoint: `http://calapi.inadiutorium.cz/api/v0/en/calendars/default/today`
+   - koristi se za prikaz danasnjeg praznika
+2. exchange-api (`https://github.com/fawazahmed0/exchange-api`)
+   - endpoint: `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json`
+   - koristi se za prikaz kursa `1 EUR -> RSD`
+
 ## Pokretanje projekta
 
 ### Preduslovi
@@ -150,14 +187,90 @@ pnpm dev
 
 App je dostupna na `http://localhost:3000`.
 
+## Pokretanje preko Docker-a (Docker + docker-compose)
+
+### 1. Priprema env promenljivih
+
+Kopiraj template fajlove:
+
+```bash
+cp .env.production.example .env.production
+cp .env.db.example .env.db
+```
+
+`.env.production` je za Next.js/better-auth varijable:
+
+```env
+BETTER_AUTH_BASE_URL=http://localhost:3000
+BETTER_AUTH_SECRET=your-secret
+ALLOWED_ORIGINS=http://localhost:3000
+```
+
+`.env.db` je za PostgreSQL servis:
+
+```env
+POSTGRES_DB=iteh_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=iteh
+DATABASE_URL=postgresql://postgres:iteh@db:5432/iteh_db
+```
+
+Ako koristis eksterni DB servis, postavi `DATABASE_URL` u `.env.production` (override preko `.env.db` vrednosti).
+`/.env.production` i `/.env.db` su ignorisani kroz `.gitignore`; za deljenje repozitorijuma koriste se samo `*.example` fajlovi.
+
+### 2. Podizanje aplikacije i baze
+
+```bash
+docker compose up --build
+```
+
+Sta se desava pri podizanju:
+
+1. Pokrece se `postgres` servis sa perzistentnim volume-om.
+2. SQL migracije iz `drizzle/*.sql` se automatski izvrsavaju preko Postgres init mehanizma (`/docker-entrypoint-initdb.d`) pri prvom podizanju baze.
+3. Nakon sto je baza zdrava, startuje `app` servis.
+
+Aplikacija: `http://localhost:3000`
+
+Napomena: Postgres init skripte se izvrsavaju samo pri prvom kreiranju baze (prazan volume).  
+Ako promenis migracije i zelis ponovnu inicijalizaciju lokalno, obrisi volume i podigni ponovo:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### 3. Opcioni Adminer (UI za bazu)
+
+`adminer` servis je stavljen pod `tools` profile da ne bude obavezan u svakom startu:
+
+```bash
+docker compose --profile tools up --build
+```
+
+Adminer UI: `http://localhost:8080`
+
+Login parametri:
+
+- `System`: `PostgreSQL`
+- `Server`: `db`
+- `Username`: vrednost iz `POSTGRES_USER`
+- `Password`: vrednost iz `POSTGRES_PASSWORD`
+- `Database`: vrednost iz `POSTGRES_DB`
+
 ## Dostupne skripte
 
 ```bash
 pnpm dev
+pnpm openapi:generate
+pnpm db:migrate
+pnpm test
 pnpm build
 pnpm start
 pnpm lint
 ```
+
+Napomena: `pnpm build` automatski poziva `pnpm openapi:generate` kroz `prebuild` skriptu.
 
 ## Struktura projekta
 

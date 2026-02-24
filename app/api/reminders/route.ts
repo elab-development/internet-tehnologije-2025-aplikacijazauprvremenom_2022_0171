@@ -11,15 +11,15 @@ import {
 } from "@/lib/api-utils";
 import { QUERY_LIMITS } from "@/lib/query-limits";
 
-const queryDateTimeSchema = z.string().datetime({ offset: true, local: true });
+const remindersQueryDateTimeSchema = z.string().datetime({ offset: true, local: true });
 
 const listRemindersSchema = z.object({
   userId: z.string().trim().min(1).optional(),
   taskId: z.string().uuid().optional(),
   eventId: z.string().uuid().optional(),
   isSent: z.enum(["true", "false"]).optional(),
-  remindFrom: queryDateTimeSchema.optional(),
-  remindTo: queryDateTimeSchema.optional(),
+  remindFrom: remindersQueryDateTimeSchema.optional(),
+  remindTo: remindersQueryDateTimeSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(QUERY_LIMITS.reminders.max).optional(),
 });
@@ -37,6 +37,15 @@ const createReminderSchema = z
     path: ["taskId"],
   });
 
+/**
+ * Lista podsetnika
+ * @description Vraca podsetnike sa filterima i paginacijom.
+ * @tag Podsetnici
+ * @auth apikey
+ * @params listRemindersSchema
+ * @response 200:OpenApiRemindersListResponseSchema
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
@@ -117,6 +126,15 @@ export async function GET(request: NextRequest) {
   );
 }
 
+/**
+ * Kreiranje podsetnika
+ * @description Kreira podsetnik za task ili dogadjaj.
+ * @tag Podsetnici
+ * @auth apikey
+ * @body createReminderSchema
+ * @response 201:OpenApiReminderResponseSchema
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   const actorGuard = await requireActor(request);
   if (!actorGuard.ok) {
