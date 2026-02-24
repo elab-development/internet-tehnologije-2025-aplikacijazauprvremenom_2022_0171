@@ -47,6 +47,8 @@ COPY --from=dependencies /app/node_modules ./node_modules
 # Copy application source code, excluding runtime env file so it never lands
 # in image layers.
 COPY --exclude=.env.production . .
+# Use Docker-specific DB client implementation inside container builds.
+COPY db/index-docker.ts ./db/index.ts
 
 ENV NODE_ENV=production
 
