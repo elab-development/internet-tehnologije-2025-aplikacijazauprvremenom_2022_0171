@@ -138,6 +138,17 @@ Rute iskljucene iz javne dokumentacije:
 - `/api/auth/*`
 - `/api/reminders/dispatch`
 
+## Eksterni API-ji
+
+Projekat koristi dva eksterna API-ja u globalnom footeru:
+
+1. Liturgical Calendar API (`http://calapi.inadiutorium.cz/api-doc`)
+   - endpoint: `http://calapi.inadiutorium.cz/api/v0/en/calendars/default/today`
+   - koristi se za prikaz danasnjeg praznika
+2. exchange-api (`https://github.com/fawazahmed0/exchange-api`)
+   - endpoint: `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json`
+   - koristi se za prikaz kursa `1 EUR -> RSD`
+
 ## Pokretanje projekta
 
 ### Preduslovi
