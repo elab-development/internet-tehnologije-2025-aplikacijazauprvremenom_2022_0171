@@ -1,7 +1,6 @@
 const LITURGICAL_API_TODAY_URL = "http://calapi.inadiutorium.cz/api/v0/en/calendars/default/today";
 const EUR_EXCHANGE_API_URL =
   "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json";
-const EXTERNAL_API_REVALIDATE_SECONDS = 60 * 60;
 
 export type HolidayInfo = {
   date: string;
@@ -20,7 +19,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 export async function getTodayHoliday(): Promise<HolidayInfo | null> {
   try {
     const response = await fetch(LITURGICAL_API_TODAY_URL, {
-      next: { revalidate: EXTERNAL_API_REVALIDATE_SECONDS },
+      cache: "no-cache",
     });
 
     if (!response.ok) {
@@ -52,7 +51,7 @@ export async function getTodayHoliday(): Promise<HolidayInfo | null> {
 export async function getEurToRsdRate(): Promise<EurRsdRateInfo | null> {
   try {
     const response = await fetch(EUR_EXCHANGE_API_URL, {
-      next: { revalidate: EXTERNAL_API_REVALIDATE_SECONDS },
+      cache: "no-cache",
     });
 
     if (!response.ok) {

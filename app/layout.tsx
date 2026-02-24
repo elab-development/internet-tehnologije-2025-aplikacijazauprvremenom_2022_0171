@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Raleway, Space_Grotesk } from "next/font/google";
 import { cookies } from "next/headers";
-import { type ReactNode } from "react";
-import { AppFooter } from "@/components/app-footer";
+import { Suspense, type ReactNode } from "react";
+import { AppFooter, AppFooterLoader } from "@/components/app-footer";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -37,7 +37,9 @@ export default async function RootLayout({
       <body className="antialiased" data-density={density}>
         <ThemeProvider>
           {children}
-          <AppFooter />
+          <Suspense fallback={<AppFooterLoader />}>
+            <AppFooter />
+          </Suspense>
           <Toaster />
         </ThemeProvider>
       </body>

@@ -45,3 +45,23 @@ export async function AppFooter() {
     </footer>
   );
 }
+
+export function AppFooterLoader() {
+  return (
+    <footer className="border-t border-border/70 bg-background/70 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 py-3 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8">
+        <p className="flex flex-wrap items-center gap-2">
+          <RiCalendarEventLine size={14} className="text-primary" />
+          <span className="font-medium text-foreground">Danasnji praznik:</span>
+          <span className="inline-block h-3 w-44 animate-pulse rounded bg-muted" />
+        </p>
+
+        <p className="flex flex-wrap items-center gap-2">
+          <RiMoneyEuroCircleLine size={14} className="text-primary" />
+          <span className="font-medium text-foreground">Kurs EUR/RSD:</span>
+          <span className="inline-block h-3 w-52 animate-pulse rounded bg-muted" />
+        </p>
+      </div>
+    </footer>
+  );
+}
