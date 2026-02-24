@@ -98,6 +98,7 @@ function loadGoogleCharts() {
 }
 
 export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
+  const chartWrapperRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const [isChartReady, setIsChartReady] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
@@ -116,10 +117,14 @@ export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
   useEffect(() => {
     let cancelled = false;
     let removeResizeListener: (() => void) | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let animationFrameId: number | null = null;
 
     if (isLoading || total === 0) {
       return () => {
         if (removeResizeListener) removeResizeListener();
+        if (resizeObserver) resizeObserver.disconnect();
+        if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
       };
     }
 
@@ -136,13 +141,18 @@ export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
         setChartError(null);
 
         const drawChart = () => {
-          if (!chartContainerRef.current) return;
+          if (!chartContainerRef.current || !chartWrapperRef.current) return;
+          const containerWidth = Math.floor(chartWrapperRef.current.clientWidth);
+          const containerHeight = Math.floor(chartWrapperRef.current.clientHeight);
+          if (containerWidth <= 0 || containerHeight <= 0) return;
 
           const data = googleCharts.visualization.arrayToDataTable(chartRows);
           const darkMode = document.documentElement.classList.contains("dark");
           const chart = new googleCharts.visualization.PieChart(chartContainerRef.current);
 
           chart.draw(data, {
+            width: containerWidth,
+            height: containerHeight,
             backgroundColor: "transparent",
             colors: ["#ef4444", "#f59e0b", "#22c55e"],
             pieHole: 0.5,
@@ -166,10 +176,27 @@ export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
           });
         };
 
-        drawChart();
+        const scheduleDraw = () => {
+          if (animationFrameId !== null) {
+            window.cancelAnimationFrame(animationFrameId);
+          }
+
+          animationFrameId = window.requestAnimationFrame(() => {
+            drawChart();
+          });
+        };
+
+        scheduleDraw();
         setIsChartReady(true);
 
-        const onResize = () => drawChart();
+        if (typeof ResizeObserver !== "undefined" && chartWrapperRef.current) {
+          resizeObserver = new ResizeObserver(() => {
+            scheduleDraw();
+          });
+          resizeObserver.observe(chartWrapperRef.current);
+        }
+
+        const onResize = () => scheduleDraw();
         window.addEventListener("resize", onResize);
         removeResizeListener = () => window.removeEventListener("resize", onResize);
       })
@@ -182,6 +209,8 @@ export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
     return () => {
       cancelled = true;
       if (removeResizeListener) removeResizeListener();
+      if (resizeObserver) resizeObserver.disconnect();
+      if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
     };
   }, [chartRows, isLoading, total]);
 
@@ -219,10 +248,10 @@ export function TaskStatusGoogleChart({ counts, isLoading }: Props) {
         </span>
       </div>
 
-      <div className="relative min-h-[280px]">
+      <div ref={chartWrapperRef} className="relative min-h-[280px] w-full min-w-0 overflow-hidden">
         <div
           ref={chartContainerRef}
-          className={cn("h-[280px] w-full", !isChartReady && "opacity-0")}
+          className={cn("h-[280px] w-full min-w-0 max-w-full overflow-hidden", !isChartReady && "opacity-0")}
           aria-label="Grafik statusa taskova"
         />
         {!isChartReady ? (

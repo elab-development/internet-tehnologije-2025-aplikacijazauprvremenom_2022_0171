@@ -743,15 +743,15 @@ export function TasksPanel({
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
-          <Card className="notion-surface animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+        <div className="min-w-0 space-y-4">
+          <Card className="notion-surface min-w-0 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
             <CardHeader>
               <CardTitle>Status taskova (Google Charts)</CardTitle>
               <CardDescription>
                 Brz pregled taskova korisnika <span className="font-medium">{targetUserName}</span> po statusu.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0 overflow-hidden">
               <TaskStatusGoogleChart
                 counts={taskStatusCounts}
                 isLoading={isTaskStatusLoading}
