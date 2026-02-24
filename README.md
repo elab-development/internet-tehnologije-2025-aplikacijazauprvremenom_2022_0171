@@ -177,4 +177,4 @@ lib/                    # auth, role, api helperi, servisna logika
 
 - `proxy.ts` stiti stranice: neulogovani i deaktivirani nalozi se vracaju na `/login`.
 - Podsetnici se dispatch-uju periodicno (60s), a notifikacije zavise od browser dozvole.
-- `lib/auth-client.ts` trenutno koristi `http://localhost:3000`; za produkciju uskladiti base URL.
+- `lib/auth-client.ts` koristi isti origin (bez hardkodovanog `localhost`), pa radi i lokalno i u produkciji.
